@@ -158,6 +158,28 @@ async function canViewUser(viewer, userId) {
   return !!target && target.department_id === viewer.department_id;
 }
 
+// ---------- desktop app downloads (public, linked from the sign-in page) ----------
+
+const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const DOWNLOADS = {
+  windows: { file: 'TimeTracker.exe', path: path.join(repoRoot, 'desktop/dist/TimeTracker.exe') },
+  mac: { file: 'TimeTracker-mac.zip', path: path.join(repoRoot, 'desktop-mac/dist/TimeTracker-mac.zip') },
+};
+
+app.get('/api/downloads', (req, res) => {
+  const out = {};
+  for (const [key, d] of Object.entries(DOWNLOADS)) {
+    try { out[key] = { url: `/downloads/${d.file}`, size: fs.statSync(d.path).size }; } catch { /* not shipped with this install */ }
+  }
+  res.json(out);
+});
+
+app.get('/downloads/:file', (req, res, next) => {
+  const d = Object.values(DOWNLOADS).find(x => x.file === req.params.file);
+  if (!d || !fs.existsSync(d.path)) return next();
+  res.download(d.path, d.file);
+});
+
 // ---------- web auth ----------
 
 app.post('/api/auth/login', wrap(async (req, res) => {

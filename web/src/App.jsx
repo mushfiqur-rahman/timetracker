@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api, getToken, setToken, setUnauthorizedHandler, fmtDateTime } from './api.js';
 import Timeline from './Timeline.jsx';
 import { Team, Users, Devices, Organization } from './Admin.jsx';
+import Guide, { HomeGuide } from './Guide.jsx';
 
 const setupTokenFromUrl = () => new URLSearchParams(window.location.search).get('setup');
 
@@ -51,10 +52,10 @@ export default function App() {
   if (!user) return <Login onLogin={u => { setUser(u); setPage(home(u)); }} />;
 
   const tabs = isAdmin
-    ? [['team', 'Team'], ['users', 'Users'], ['devices', 'Devices'], ['org', 'Roles & departments'], ['time', 'My time']]
+    ? [['team', 'Team'], ['users', 'Users'], ['devices', 'Devices'], ['org', 'Roles & departments'], ['time', 'My time'], ['guide', 'Guide']]
     : isManager
-      ? [['team', 'Team'], ['time', 'My time'], ['mydevices', 'My devices']]
-      : [['time', 'My time'], ['mydevices', 'My devices']];
+      ? [['team', 'Team'], ['time', 'My time'], ['mydevices', 'My devices'], ['guide', 'App & guide']]
+      : [['time', 'My time'], ['mydevices', 'My devices'], ['guide', 'App & guide']];
   const go = p => { setPage(p); setViewUser(null); };
 
   return (
@@ -82,6 +83,7 @@ export default function App() {
         {page === 'time' && <Timeline title="My time" />}
         {page === 'mydevices' && <MyDevices />}
         {page === 'account' && <Account user={user} />}
+        {page === 'guide' && <Guide user={user} go={go} />}
         {(isAdmin || isManager) && page === 'team' && (viewUser
           ? <Timeline title={viewUser.name} subtitle={viewUser.email} userId={viewUser.id} onBack={() => setViewUser(null)} />
           : <Team user={user} onOpen={setViewUser} />)}
@@ -97,8 +99,14 @@ function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
   const [canSignUp, setCanSignUp] = useState(false);
   useEffect(() => { api('/auth/config').then(d => setCanSignUp(!!d.signup)).catch(() => {}); }, []);
-  if (mode === 'signup') return <SignUp onBack={() => setMode('login')} />;
-  return <LoginForm onLogin={onLogin} onSignUp={canSignUp ? () => setMode('signup') : null} />;
+  return (
+    <div className="landing">
+      {mode === 'signup'
+        ? <SignUp onBack={() => setMode('login')} />
+        : <LoginForm onLogin={onLogin} onSignUp={canSignUp ? () => setMode('signup') : null} />}
+      <HomeGuide canSignUp={canSignUp} />
+    </div>
+  );
 }
 
 function LoginForm({ onLogin, onSignUp }) {
@@ -119,7 +127,6 @@ function LoginForm({ onLogin, onSignUp }) {
   };
 
   return (
-    <div className="center">
       <form className="card login" onSubmit={submit}>
         <div className="brand big"><span className="logo" aria-hidden="true" />Time Tracker</div>
         <p className="muted">Sign in with your email and the password you chose.</p>
@@ -130,7 +137,6 @@ function LoginForm({ onLogin, onSignUp }) {
         {onSignUp && <p className="hint">New here? <button type="button" className="link" onClick={onSignUp}>Create an account</button></p>}
         <p className="muted small hint">Forgot your password? Ask your admin for a password link.</p>
       </form>
-    </div>
   );
 }
 
@@ -154,7 +160,6 @@ function SignUp({ onBack }) {
   };
 
   return (
-    <div className="center">
       <form className="card login" onSubmit={submit}>
         <div className="brand big"><span className="logo" aria-hidden="true" />Time Tracker</div>
         {done ? (
@@ -176,7 +181,6 @@ function SignUp({ onBack }) {
           </>
         )}
       </form>
-    </div>
   );
 }
 

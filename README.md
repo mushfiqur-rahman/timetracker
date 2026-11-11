@@ -150,6 +150,8 @@ Other things an admin can do:
 
 The **server address** in the app is your website address, for example `https://your-domain`.
 
+The easiest way to get the app is from the website itself: the sign-in page and the **App & guide** page (called **Guide** for admins) have download buttons for Windows and Mac, with step-by-step instructions. Admins also get a **For admins** guide there that explains setup and everyday tasks.
+
 ### Windows 11
 
 1. Download [`desktop/dist/TimeTracker.exe`](desktop/dist/TimeTracker.exe) (open the file on GitHub, then "Download raw file").

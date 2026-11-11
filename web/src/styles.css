@@ -287,3 +287,40 @@ td[data-label="Role"] { white-space: nowrap; }
   td[data-label="Role"] { white-space: normal; }
 }
 .hint .link { font-size: inherit; }
+
+/* sign-in page: form + app download and quick guide */
+.landing {
+  min-height: 100%; display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 460px);
+  gap: 24px; justify-content: center; align-content: center; align-items: start; padding: 32px 16px;
+}
+.landing .login { max-width: none; }
+.homeguide { margin: 0; }
+.homeguide h2 { font-size: 18px; margin-bottom: 4px; }
+.homeguide h3, .guide h3 { margin: 16px 0 6px; }
+.downloads { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 4px; }
+.btn.dl { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 10px 16px; text-decoration: none; flex: 1 1 180px; }
+.btn.dl span { font-size: 12px; font-weight: 400; opacity: .85; }
+.steps { margin: 0; padding-left: 20px; }
+.steps li { margin-bottom: 7px; }
+.addr { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; vertical-align: middle; }
+code { font-family: Consolas, "SF Mono", Menlo, monospace; font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
+
+/* guide page */
+.guide .card.pad > h2 { font-size: 17px; margin-bottom: 6px; }
+.gstep { display: flex; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
+.gstep:first-of-type { margin-top: 10px; }
+.gnum { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; display: grid; place-items: center; }
+.gbody { min-width: 0; flex: 1; }
+.gbody h3 { margin: 3px 0 4px; font-size: 15px; }
+.gtext { margin-bottom: 10px; }
+.gtext ul, ul.plain { margin: 6px 0 0; padding-left: 18px; }
+.gtext li, ul.plain li { margin-bottom: 5px; }
+ul.plain .pill { margin-right: 4px; }
+h3.gap { margin-top: 18px; }
+.dotword { white-space: nowrap; }
+.guidecols { gap: 8px 28px; margin-top: 4px; }
+.guide .row { margin-top: 12px; }
+
+@media (max-width: 860px) {
+  .landing { grid-template-columns: minmax(0, 460px); align-content: start; padding: 20px 12px; }
+}

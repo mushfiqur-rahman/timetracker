@@ -6,6 +6,9 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY server.js ./
 COPY server ./server
+# the desktop apps offered for download on the website
+COPY desktop/dist ./desktop/dist
+COPY desktop-mac/dist ./desktop-mac/dist
 USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

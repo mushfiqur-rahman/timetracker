@@ -1,8 +1,10 @@
 node_modules
 **/node_modules
 web
-desktop
-desktop-mac
+desktop/TimeTracker
+desktop-mac/Sources
+desktop-mac/.build
+desktop-mac/dist/TimeTracker.app
 .env
 .git
 .github
