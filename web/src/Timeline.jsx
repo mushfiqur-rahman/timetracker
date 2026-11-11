@@ -2,7 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api, startOfDay, addDays, startOfWeek, sameDay, fmtDur, pct } from './api.js';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const hhmm = (h, m) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+// 12-hour clock
+const h12 = h => ((h + 11) % 12) + 1;
+const ampm = h => (h % 24 < 12 ? 'AM' : 'PM');
+const hm = (h, m) => `${h12(h)}:${String(m).padStart(2, '0')}`;
+const hourLabel = h => `${h12(h)} ${ampm(h)}`;
 
 // One person's work diary: week overview + the selected day in 10-minute blocks.
 export default function Timeline({ title, subtitle, userId, onBack }) {
@@ -116,12 +120,12 @@ export default function Timeline({ title, subtitle, userId, onBack }) {
         {rows !== null && hours.length === 0 && <div className="empty">No time tracked on this day.</div>}
         {hours.map(([h, blocks]) => (
           <div className="hour" key={h}>
-            <div className="hourlabel">{hhmm(h, 0)}</div>
+            <div className="hourlabel">{hourLabel(h)}</div>
             <div className="blocks">
               {blocks.map((b, i) => (
                 <div key={i} className={`block ${b.total ? '' : 'none'}`}
-                  title={b.total ? `${hhmm(h, i * 10)} – ${i === 5 ? hhmm(h + 1, 0) : hhmm(h, i * 10 + 10)}\n${b.mouse} mouse clicks, ${b.keys} key presses` : 'Not tracked'}>
-                  <div className="btime">{hhmm(h, i * 10)}</div>
+                  title={b.total ? `${hm(h, i * 10)} ${ampm(h)} – ${i === 5 ? `${hm(h + 1, 0)} ${ampm(h + 1)}` : `${hm(h, i * 10 + 10)} ${ampm(h)}`}\n${b.mouse} mouse clicks, ${b.keys} key presses` : 'Not tracked'}>
+                  <div className="btime">{hm(h, i * 10)} {ampm(h)}</div>
                   <div className="mins">
                     {b.mins.map((m, k) => <span key={k} className={`min ${m || ''}`} />)}
                   </div>

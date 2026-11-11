@@ -324,7 +324,8 @@ final class AppModel: ObservableObject {
             state.status = "Offline - " + (waiting > 0 ? "\(waiting) min saved on this Mac, will upload when the connection is back." : "will retry shortly.")
         } else if let ok = lastSyncOk {
             let formatter = DateFormatter()
-            formatter.dateFormat = "HH:mm"
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "h:mm a"
             state.status = "Synced at " + formatter.string(from: ok) + (waiting > 0 ? " - \(waiting) min waiting to upload" : "")
         } else {
             state.status = "Connecting..."

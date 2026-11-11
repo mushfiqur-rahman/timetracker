@@ -103,7 +103,7 @@ namespace TimeTracker
         {
             _loginView = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Visible = false };
             MakeLabel(_loginView, "Time Tracker", 16, 26, 308, 34, 17f, FontStyle.Bold, Theme.Text, ContentAlignment.MiddleCenter);
-            MakeLabel(_loginView, "Sign in with the account your admin gave you", 16, 60, 308, 20, 9f, FontStyle.Regular, Theme.Muted, ContentAlignment.MiddleCenter);
+            MakeLabel(_loginView, "Sign in with your email and password", 16, 60, 308, 20, 9f, FontStyle.Regular, Theme.Muted, ContentAlignment.MiddleCenter);
 
             var card = new CardPanel { Location = new Point(16, 98), Size = new Size(308, 262) };
             _txtServer = MakeInput(card, "Server address", 16);
@@ -439,7 +439,7 @@ namespace TimeTracker
             int waiting = _tracker.Queue.Count;
             string status;
             if (_offline) status = "Offline - " + (waiting > 0 ? waiting + " min saved on this PC, will upload when the connection is back." : "will retry shortly.");
-            else if (_lastSyncOk.HasValue) status = "Synced at " + _lastSyncOk.Value.ToString("HH:mm") + (waiting > 0 ? " - " + waiting + " min waiting to upload" : "");
+            else if (_lastSyncOk.HasValue) status = "Synced at " + _lastSyncOk.Value.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture) + (waiting > 0 ? " - " + waiting + " min waiting to upload" : "");
             else status = "Connecting...";
             SetText(_lblStatus, status);
             _lblStatus.ForeColor = _offline ? Theme.IdleText : Theme.Muted;

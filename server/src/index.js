@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { q, initDb } from './db.js';
 
@@ -64,7 +65,13 @@ function parseRange(req, maxDays = 100) {
   return [Math.ceil(from.getTime() / 60e3), Math.ceil(to.getTime() / 60e3)];
 }
 
-const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, active: !!u.active });
+// role = access level (admin / manager / user); roleName is the label the admin gave that role
+const publicUser = u => ({
+  id: u.id, email: u.email, name: u.name, role: u.access || 'user', active: !!u.active,
+  roleId: u.role_id, roleName: u.role_name || 'User',
+  departmentId: u.department_id, departmentName: u.department_name || null,
+  hasPassword: !!u.password_hash,
+});
 
 function publicDevice(d) {
   let macs = [];
@@ -72,7 +79,21 @@ function publicDevice(d) {
   return { ...d, last_macs: Array.isArray(macs) ? macs : [] };
 }
 
-const userById = async id => (await q('SELECT * FROM users WHERE id = ?', [id]))[0];
+const USER_SELECT = `SELECT u.*, r.access, r.name AS role_name, d.name AS department_name
+                       FROM users u LEFT JOIN roles r ON r.id = u.role_id LEFT JOIN departments d ON d.id = u.department_id`;
+const userById = async id => (await q(`${USER_SELECT} WHERE u.id = ?`, [id]))[0];
+
+// One-time link with which a user chooses their own password (new account or reset). Only its hash is stored.
+const SETUP_DAYS = 7;
+const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
+async function newSetupToken(userId) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  await q('UPDATE users SET setup_token_hash = ?, setup_expires = DATE_ADD(NOW(), INTERVAL ? DAY) WHERE id = ?',
+    [hashToken(token), SETUP_DAYS, userId]);
+  return token;
+}
+const userBySetupToken = async token => (await q(
+  `${USER_SELECT} WHERE u.setup_token_hash = ? AND u.setup_expires > NOW() AND u.active = 1`, [hashToken(token)]))[0];
 const deviceById = async id => (await q('SELECT * FROM devices WHERE id = ?', [id]))[0];
 
 // Small in-memory limiter for login attempts: 10 failures per 15 min per ip+email.
@@ -92,7 +113,9 @@ async function verifyCredentials(req) {
   const password = String(req.body?.password || '');
   const key = `${req.ip}|${email}`;
   checkLoginLimit(key);
-  const user = (await q('SELECT * FROM users WHERE email = ?', [email]))[0];
+  const user = (await q(`${USER_SELECT} WHERE u.email = ?`, [email]))[0];
+  if (user && !user.password_hash)
+    throw new HttpError(403, 'You have not chosen a password yet. Open the setup link your admin sent you.', 'PASSWORD_NOT_SET');
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     noteLoginFail(key);
     throw new HttpError(401, 'Wrong email or password');
@@ -123,7 +146,16 @@ function auth(kind) {
     next();
   });
 }
-const adminOnly = (req, res, next) => req.user.role === 'admin' ? next() : next(new HttpError(403, 'Admins only'));
+const adminOnly = (req, res, next) => req.user.access === 'admin' ? next() : next(new HttpError(403, 'Admins only'));
+const teamOnly = (req, res, next) => ['admin', 'manager'].includes(req.user.access) ? next() : next(new HttpError(403, 'Managers and admins only'));
+
+/** Admins see everyone; managers see the people in their own department; everyone sees themselves. */
+async function canViewUser(viewer, userId) {
+  if (userId === viewer.id || viewer.access === 'admin') return true;
+  if (viewer.access !== 'manager' || !viewer.department_id) return false;
+  const target = await userById(userId);
+  return !!target && target.department_id === viewer.department_id;
+}
 
 // ---------- web auth ----------
 
@@ -131,6 +163,25 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const user = await verifyCredentials(req);
   const token = jwt.sign({ uid: user.id, kind: 'web' }, JWT_SECRET, { expiresIn: '7d' });
   res.json({ token, user: publicUser(user) });
+}));
+
+// Who a setup link belongs to (shown on the "choose your password" page).
+app.get('/api/auth/setup/:token', wrap(async (req, res) => {
+  const user = await userBySetupToken(req.params.token);
+  if (!user) throw new HttpError(404, 'This link is no longer valid. Ask your admin for a new one.');
+  res.json({ name: user.name, email: user.email });
+}));
+
+app.post('/api/auth/setup', wrap(async (req, res) => {
+  const password = String(req.body?.password || '');
+  const user = await userBySetupToken(req.body?.token);
+  if (!user) throw new HttpError(404, 'This link is no longer valid. Ask your admin for a new one.');
+  if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
+  await q('UPDATE users SET password_hash = ?, setup_token_hash = NULL, setup_expires = NULL WHERE id = ?',
+    [await bcrypt.hash(password, 10), user.id]);
+  const fresh = await userById(user.id);
+  const token = jwt.sign({ uid: fresh.id, kind: 'web' }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token, user: publicUser(fresh) });
 }));
 
 const web = express.Router();
@@ -152,8 +203,8 @@ web.get('/activity', wrap(async (req, res) => {
   const [from, to] = parseRange(req, 32);
   let uid = req.user.id;
   if (req.query.userId && Number(req.query.userId) !== uid) {
-    if (req.user.role !== 'admin') throw new HttpError(403, 'Admins only');
     uid = Number(req.query.userId);
+    if (!(await canViewUser(req.user, uid))) throw new HttpError(403, 'You may not view this person');
   }
   const rows = await q(
     'SELECT t, seconds, mouse, key_presses FROM activity_minutes WHERE user_id = ? AND t >= ? AND t < ? ORDER BY t',
@@ -177,33 +228,67 @@ admin.use(adminOnly);
 
 admin.get('/users', wrap(async (req, res) => {
   const rows = await q(`
-    SELECT u.id, u.email, u.name, u.role, u.active, u.created_at,
+    SELECT u.id, u.email, u.name, u.active, u.created_at, u.role_id, u.department_id,
+           r.access AS role, r.name AS role_name, dp.name AS department_name,
+           (u.password_hash IS NOT NULL) AS has_password,
            COALESCE(SUM(d.status = 'approved'), 0) AS approved_devices,
            COALESCE(SUM(d.status = 'pending'), 0)  AS pending_devices,
            MAX(d.last_seen_at) AS last_seen_at
-      FROM users u LEFT JOIN devices d ON d.user_id = u.id
+      FROM users u
+      LEFT JOIN roles r ON r.id = u.role_id
+      LEFT JOIN departments dp ON dp.id = u.department_id
+      LEFT JOIN devices d ON d.user_id = u.id
      GROUP BY u.id ORDER BY u.name`);
   res.json({
-    users: rows.map(u => ({ ...u, active: !!u.active, approved_devices: Number(u.approved_devices), pending_devices: Number(u.pending_devices) })),
+    users: rows.map(u => ({ ...u, active: !!u.active, has_password: !!u.has_password, approved_devices: Number(u.approved_devices), pending_devices: Number(u.pending_devices) })),
   });
 }));
 
+// Checks roleId / departmentId from a request body. Returns the values to store.
+async function readRoleAndDepartment(b) {
+  const out = {};
+  if (b.roleId !== undefined) {
+    const role = (await q('SELECT id FROM roles WHERE id = ?', [Number(b.roleId)]))[0];
+    if (!role) throw new HttpError(400, 'Choose a role');
+    out.role_id = role.id;
+  }
+  if (b.departmentId !== undefined) {
+    if (b.departmentId === null || b.departmentId === '') out.department_id = null;
+    else {
+      const dep = (await q('SELECT id FROM departments WHERE id = ?', [Number(b.departmentId)]))[0];
+      if (!dep) throw new HttpError(400, 'Choose a department');
+      out.department_id = dep.id;
+    }
+  }
+  return out;
+}
+
+// The admin never sets a password: the new user chooses it through a one-time setup link.
 admin.post('/users', wrap(async (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  const name = String(req.body?.name || '').trim();
-  const password = String(req.body?.password || '');
-  const role = req.body?.role === 'admin' ? 'admin' : 'user';
+  const b = req.body || {};
+  const email = String(b.email || '').trim().toLowerCase();
+  const name = String(b.name || '').trim();
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
   if (!name) throw new HttpError(400, 'Name is required');
-  if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
+  const rd = await readRoleAndDepartment(b);
+  if (!rd.role_id) rd.role_id = (await q(`SELECT id FROM roles WHERE access = 'user' ORDER BY is_system DESC, id LIMIT 1`))[0].id;
   try {
-    const r = await q('INSERT INTO users (email, name, password_hash, role) VALUES (?,?,?,?)',
-      [email, name, await bcrypt.hash(password, 10), role]);
-    res.status(201).json({ user: publicUser(await userById(r.insertId)) });
+    const r = await q('INSERT INTO users (email, name, role_id, department_id) VALUES (?,?,?,?)',
+      [email, name, rd.role_id, rd.department_id ?? null]);
+    const setupToken = await newSetupToken(r.insertId);
+    res.status(201).json({ user: publicUser(await userById(r.insertId)), setupToken, setupDays: SETUP_DAYS });
   } catch (e) {
     if (isDuplicate(e)) throw new HttpError(409, 'A user with this email already exists');
     throw e;
   }
+}));
+
+// New setup link: for a user who lost the first one or forgot their password.
+admin.post('/users/:id/setup-link', wrap(async (req, res) => {
+  const user = await userById(Number(req.params.id));
+  if (!user) throw new HttpError(404, 'User not found');
+  if (!user.active) throw new HttpError(400, 'Enable this user first');
+  res.json({ setupToken: await newSetupToken(user.id), setupDays: SETUP_DAYS });
 }));
 
 admin.patch('/users/:id', wrap(async (req, res) => {
@@ -220,13 +305,12 @@ admin.patch('/users/:id', wrap(async (req, res) => {
     if (!String(b.name).trim()) throw new HttpError(400, 'Name is required');
     set('name', String(b.name).trim());
   }
-  if (b.password) {
-    if (String(b.password).length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
-    set('password_hash', await bcrypt.hash(String(b.password), 10));
-  }
-  if (b.role !== undefined || b.active !== undefined) {
+  const rd = await readRoleAndDepartment(b);
+  if (rd.department_id !== undefined) set('department_id', rd.department_id);
+  const roleChanges = rd.role_id !== undefined && rd.role_id !== (await userById(id))?.role_id;
+  if (roleChanges || b.active !== undefined) {
     if (id === req.user.id) throw new HttpError(400, 'You cannot change your own role or disable yourself');
-    if (b.role !== undefined) set('role', b.role === 'admin' ? 'admin' : 'user');
+    if (roleChanges) set('role_id', rd.role_id);
     if (b.active !== undefined) set('active', b.active ? 1 : 0);
   }
   if (!sets.length) throw new HttpError(400, 'Nothing to update');
@@ -247,6 +331,102 @@ admin.delete('/users/:id', wrap(async (req, res) => {
   if (!r.affectedRows) throw new HttpError(404, 'User not found');
   res.json({ ok: true });
 }));
+
+// ----- departments -----
+
+admin.get('/departments', wrap(async (req, res) => {
+  const rows = await q(`SELECT d.id, d.name, COUNT(u.id) AS users FROM departments d LEFT JOIN users u ON u.department_id = d.id
+                         GROUP BY d.id ORDER BY d.name`);
+  res.json({ departments: rows.map(d => ({ ...d, users: Number(d.users) })) });
+}));
+
+admin.post('/departments', wrap(async (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 100);
+  if (!name) throw new HttpError(400, 'Name is required');
+  try {
+    const r = await q('INSERT INTO departments (name) VALUES (?)', [name]);
+    res.status(201).json({ department: { id: r.insertId, name, users: 0 } });
+  } catch (e) {
+    if (isDuplicate(e)) throw new HttpError(409, 'A department with this name already exists');
+    throw e;
+  }
+}));
+
+admin.patch('/departments/:id', wrap(async (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 100);
+  if (!name) throw new HttpError(400, 'Name is required');
+  try {
+    const r = await q('UPDATE departments SET name = ? WHERE id = ?', [name, Number(req.params.id)]);
+    if (!r.affectedRows) throw new HttpError(404, 'Department not found');
+    res.json({ ok: true });
+  } catch (e) {
+    if (isDuplicate(e)) throw new HttpError(409, 'A department with this name already exists');
+    throw e;
+  }
+}));
+
+// People in a deleted department simply have no department afterwards.
+admin.delete('/departments/:id', wrap(async (req, res) => {
+  const r = await q('DELETE FROM departments WHERE id = ?', [Number(req.params.id)]);
+  if (!r.affectedRows) throw new HttpError(404, 'Department not found');
+  res.json({ ok: true });
+}));
+
+// ----- roles -----
+
+const ACCESS_LEVELS = ['admin', 'manager', 'user'];
+
+admin.get('/roles', wrap(async (req, res) => {
+  const rows = await q(`SELECT r.id, r.name, r.access, r.is_system, COUNT(u.id) AS users FROM roles r LEFT JOIN users u ON u.role_id = r.id
+                         GROUP BY r.id ORDER BY r.is_system DESC, r.name`);
+  res.json({ roles: rows.map(r => ({ id: r.id, name: r.name, access: r.access, system: !!r.is_system, users: Number(r.users) })) });
+}));
+
+admin.post('/roles', wrap(async (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 100);
+  const access = req.body?.access;
+  if (!name) throw new HttpError(400, 'Name is required');
+  if (!ACCESS_LEVELS.includes(access)) throw new HttpError(400, 'Choose what this role may do');
+  try {
+    const r = await q('INSERT INTO roles (name, access) VALUES (?,?)', [name, access]);
+    res.status(201).json({ role: { id: r.insertId, name, access, system: false, users: 0 } });
+  } catch (e) {
+    if (isDuplicate(e)) throw new HttpError(409, 'A role with this name already exists');
+    throw e;
+  }
+}));
+
+admin.patch('/roles/:id', wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const role = (await q('SELECT * FROM roles WHERE id = ?', [id]))[0];
+  if (!role) throw new HttpError(404, 'Role not found');
+  if (role.is_system) throw new HttpError(400, 'The built-in roles cannot be changed');
+  const name = String(req.body?.name ?? role.name).trim().slice(0, 100);
+  const access = req.body?.access ?? role.access;
+  if (!name) throw new HttpError(400, 'Name is required');
+  if (!ACCESS_LEVELS.includes(access)) throw new HttpError(400, 'Choose what this role may do');
+  if (access !== role.access && req.user.role_id === id) throw new HttpError(400, 'You cannot change the access of your own role');
+  try {
+    await q('UPDATE roles SET name = ?, access = ? WHERE id = ?', [name, access, id]);
+    res.json({ ok: true });
+  } catch (e) {
+    if (isDuplicate(e)) throw new HttpError(409, 'A role with this name already exists');
+    throw e;
+  }
+}));
+
+admin.delete('/roles/:id', wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const role = (await q('SELECT * FROM roles WHERE id = ?', [id]))[0];
+  if (!role) throw new HttpError(404, 'Role not found');
+  if (role.is_system) throw new HttpError(400, 'The built-in roles cannot be deleted');
+  if ((await q('SELECT 1 FROM users WHERE role_id = ? LIMIT 1', [id])).length)
+    throw new HttpError(400, 'People still have this role. Give them another role first.');
+  await q('DELETE FROM roles WHERE id = ?', [id]);
+  res.json({ ok: true });
+}));
+
+// ----- devices -----
 
 admin.get('/devices', wrap(async (req, res) => {
   const rows = await q(`
@@ -294,23 +474,42 @@ admin.delete('/devices/:id', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Worked / idle seconds per user for a range (team report).
-admin.get('/summary', wrap(async (req, res) => {
+// ---------- team report (admins: everyone, managers: their department) ----------
+
+web.get('/team/summary', teamOnly, wrap(async (req, res) => {
   const [from, to] = parseRange(req);
+  const where = [], params = [from, to];
+  if (req.user.access === 'manager') {
+    where.push('u.department_id = ?'); params.push(req.user.department_id || 0);
+  } else if (req.query.departmentId) {
+    where.push('u.department_id = ?'); params.push(Number(req.query.departmentId));
+  }
   const rows = await q(`
-    SELECT u.id, u.name, u.email, u.active,
+    SELECT u.id, u.name, u.email, u.active, r.name AS role_name, d.name AS department_name,
            COALESCE(SUM(a.seconds), 0) AS total,
            COALESCE(SUM(CASE WHEN a.mouse + a.key_presses = 0 THEN a.seconds ELSE 0 END), 0) AS idle,
            MAX(a.t) AS last_t
-      FROM users u LEFT JOIN activity_minutes a ON a.user_id = u.id AND a.t >= ? AND a.t < ?
-     GROUP BY u.id ORDER BY u.name`, [from, to]);
+      FROM users u
+      LEFT JOIN roles r ON r.id = u.role_id
+      LEFT JOIN departments d ON d.id = u.department_id
+      LEFT JOIN activity_minutes a ON a.user_id = u.id AND a.t >= ? AND a.t < ?
+     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+     GROUP BY u.id ORDER BY u.name`, params);
   res.json({
     users: rows.map(u => ({
       id: u.id, name: u.name, email: u.email, active: !!u.active,
+      roleName: u.role_name, departmentName: u.department_name,
       total: Number(u.total), idle: Number(u.idle),
       last_activity: u.last_t == null ? null : new Date(u.last_t * 60e3).toISOString(),
     })),
   });
+}));
+
+web.get('/team/departments', teamOnly, wrap(async (req, res) => {
+  const rows = req.user.access === 'admin'
+    ? await q('SELECT id, name FROM departments ORDER BY name')
+    : await q('SELECT id, name FROM departments WHERE id = ?', [req.user.department_id || 0]);
+  res.json({ departments: rows });
 }));
 
 web.use('/admin', admin);

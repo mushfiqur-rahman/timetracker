@@ -59,7 +59,7 @@ struct LoginView: View {
     var body: some View {
         VStack(spacing: 0) {
             Text("Time Tracker").font(.system(size: 24, weight: .bold)).padding(.top, 28)
-            Text("Sign in with the account your admin gave you")
+            Text("Sign in with your email and password")
                 .font(.system(size: 12)).foregroundColor(Theme.muted).padding(.top, 4).padding(.bottom, 20)
 
             Card {

@@ -58,8 +58,8 @@ section.narrow { max-width: 520px; }
   content: ""; position: absolute; left: 10px; top: 5px; width: 6px; height: 7px;
   border-left: 2px solid var(--accent-ink); border-bottom: 2px solid var(--accent-ink); border-radius: 0 0 0 1px;
 }
-.topbar nav { display: flex; gap: 2px; flex: 1; flex-wrap: wrap; }
-.who { display: flex; align-items: center; gap: 4px; }
+.topbar nav { display: flex; gap: 2px; flex: 1; flex-wrap: wrap; order: 2; }
+.who { display: flex; align-items: center; gap: 4px; order: 3; }
 .tab {
   border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
   padding: 8px 12px; border-radius: 8px; cursor: pointer;
@@ -120,6 +120,7 @@ td .pill + .sub, td > .pill:not(:first-child) { margin-left: 8px; }
 .pill.approved { background: var(--accent-soft); color: var(--accent); }
 .pill.pending { background: var(--idle-soft); color: var(--idle-ink); }
 .pill.revoked { background: var(--danger-soft); color: var(--danger); }
+.pill.neutral { background: var(--none); color: var(--muted); margin-left: 8px; }
 
 /* stats */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -157,7 +158,7 @@ td .pill + .sub, td > .pill:not(:first-child) { margin-left: 8px; }
 /* timeline */
 .hour { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .hour:first-of-type { border-top: 0; }
-.hourlabel { width: 44px; flex: none; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.hourlabel { width: 50px; white-space: nowrap; flex: none; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 2px; }
 .blocks { flex: 1; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .block { border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-width: 0; }
 .block.none { opacity: .55; border-style: dashed; }
@@ -196,11 +197,92 @@ tr.clickable:hover td { background: var(--bg); }
 .modalhead h2 { font-size: 17px; }
 .addmac { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 8px; }
 
+/* small helpers */
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filters select { width: auto; }
+.hint { margin: 12px 0 0; text-align: center; }
+.linknote { margin: 12px 0 0; }
+.twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+h2.section.first { margin-top: 0; }
+.addrow { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-top: 1px solid var(--line); }
+.addrow input { flex: 1 1 160px; width: auto; }
+.addrow select { flex: 0 1 140px; width: auto; }
+td select { width: auto; padding: 5px 8px; }
+.accesslist { margin: 12px 0 0; padding-left: 18px; }
+.accesslist li { margin-bottom: 3px; }
+
 @media (max-width: 860px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .blocks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .twocol { grid-template-columns: 1fr; }
+}
+
+/* phones and narrow windows */
+@media (max-width: 760px) {
+  main { padding: 16px 12px 48px; }
+  h1 { font-size: 20px; }
+  .topbar { padding: 8px 12px; gap: 6px 8px; }
+  .brand { flex: 1; }
+  .who { order: 2; }
+  .who .tab { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar nav {
+    order: 3; flex: 0 0 100%; flex-wrap: nowrap; overflow-x: auto; margin: 0 -12px; padding: 0 12px 2px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .topbar nav::-webkit-scrollbar { display: none; }
+  .topbar nav .tab { flex: none; }
+  .tab, .btn { min-height: 38px; }
+  .btn.small { min-height: 34px; padding: 6px 12px; font-size: 13px; }
+  input, select { font-size: 16px; }   /* stops phones zooming in on focus */
+
+  .pagehead { align-items: stretch; flex-direction: column; }
+  .datenav { flex-wrap: wrap; }
+  .datenav input { flex: 1; min-width: 0; }
+  .filters > * { flex: 1 1 auto; }
+  .segmented { display: flex; }
+  .segmented button { flex: 1; padding: 8px 6px; }
+  .cardhead { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .card.pad { padding: 14px; }
+  .svalue { font-size: 22px; }
+  .weekchart { gap: 2px; }
+  .wval { font-size: 10px; }
+  .wlabel { font-size: 11px; }
+  .wbar { height: 70px; }
+
+  /* tables become one card per row */
+  table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: 100%; }
+  table.stack thead { display: none; }
+  table.stack tr { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  table.stack tr:last-child { border-bottom: 0; }
+  table.stack td {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+    padding: 4px 0; border: 0; text-align: right; white-space: normal;
+  }
+  table.stack td::before { content: attr(data-label); color: var(--muted); font-size: 12px; text-align: left; flex: none; }
+  table.stack td:first-child { font-weight: 600; }
+  table.stack td:first-child .sub { font-weight: 400; }
+  table.stack td.empty { display: block; text-align: center; font-weight: 400; }
+  table.stack td.actions { justify-content: flex-start; flex-wrap: wrap; gap: 6px; padding-top: 10px; }
+  table.stack td.actions:empty, table.stack td.rowlink { display: none; }
+  table.stack td.actions::before { display: none; }
+  .actions .btn { margin-left: 0; }
+  .meter { margin-left: auto; }
+  tr.clickable td:first-child::after { content: "›"; color: var(--muted); margin-left: 8px; }
+
+  .overlay { padding: 0; place-items: end center; }
+  .modal, .modal.wide { max-width: none; border-radius: 16px 16px 0 0; max-height: 92vh; overflow-y: auto; padding: 16px; }
+  .login { padding: 22px 18px; }
 }
 @media (max-width: 480px) {
   .blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hour { flex-direction: column; gap: 6px; }
+  .stats { gap: 8px; }
+  .stat { padding: 12px; }
+}
+
+.pill { white-space: nowrap; }
+td[data-label="Role"] { white-space: nowrap; }
+@media (max-width: 760px) {
+  .wval { white-space: nowrap; font-size: 9.5px; letter-spacing: -0.3px; }
+  td[data-label="Role"] { white-space: normal; }
 }

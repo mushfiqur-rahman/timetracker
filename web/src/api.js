@@ -40,5 +40,5 @@ export const pct = (part, total) => (total > 0 ? Math.round((part / total) * 100
 
 export function fmtDateTime(v) {
   if (!v) return '—';
-  return new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(v).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 }
