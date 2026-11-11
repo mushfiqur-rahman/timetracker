@@ -5,7 +5,8 @@ A small Upwork-style time tracker: a Windows desktop app that counts mouse and k
 ```
 server/    API (Node.js + PostgreSQL)
 web/       Website (React), served by the API server
-desktop/   Windows 11 app (C#, .NET Framework 4.8 — built into Windows, nothing to install)
+desktop/       Windows 11 app (C#, .NET Framework 4.8 — built into Windows, nothing to install)
+desktop-mac/   macOS app (Swift, macOS 12 or newer, Apple Silicon and Intel)
 ```
 
 ## How it works
@@ -39,7 +40,7 @@ docker compose exec db pg_dump -U timetracker timetracker > backup.sql   # backu
 docker compose up -d --build                                         # update after changing code
 ```
 
-## Desktop app
+## Desktop app (Windows)
 
 The ready-built app is `desktop/dist/TimeTracker.exe`. Copy it to the user's PC and run it.
 
@@ -53,6 +54,23 @@ Build it yourself (Windows or Linux, .NET SDK 8 or newer):
 ```bash
 cd desktop/TimeTracker
 dotnet build -c Release
+```
+
+## Desktop app (macOS)
+
+The ready-built app is `desktop-mac/dist/TimeTracker-mac.zip`. Unzip it and drag **TimeTracker** into Applications.
+
+- **First run.** The app is not signed with an Apple Developer ID, so macOS blocks it the first time. Open it once, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** (on older macOS: right-click the app → Open). An Apple Developer account (99 USD per year) removes this step.
+- **No special permissions.** The app reads macOS' own running totals of clicks, scrolls and key presses, so it does not ask for Accessibility or Input Monitoring access and cannot see which keys are pressed.
+- **Notifications.** Allow notifications when asked, otherwise the 5-minute idle reminder cannot appear.
+- The red close button hides the window; the timer keeps running. Use the clock icon in the menu bar to open the window, start or stop, or quit.
+- The device is identified by the Mac's hardware UUID plus its MAC address. Recent macOS versions can use a private Wi-Fi address, so the Devices page may show "MAC changed" for a Mac; the approval still holds because it is tied to the hardware UUID.
+
+Every change under `desktop-mac/` is built and tested automatically on a real Mac by GitHub Actions (`.github/workflows/mac.yml`); the result is published to the `mac-build` branch. To build it yourself on a Mac with Xcode:
+
+```bash
+cd desktop-mac
+./build.sh
 ```
 
 ## First steps for an admin
