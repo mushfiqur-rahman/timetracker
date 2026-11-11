@@ -26,6 +26,7 @@ class HttpError extends Error {
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const isDuplicate = e => e && e.code === 'ER_DUP_ENTRY';
 
 function normMac(v) {
   const hex = String(v || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
@@ -33,14 +34,24 @@ function normMac(v) {
   return hex.match(/.{2}/g).join(':');
 }
 
-function parseRange(req) {
+/** from/to query parameters as whole minutes since 1970. */
+function parseRange(req, maxDays = 100) {
   const from = new Date(req.query.from), to = new Date(req.query.to);
   if (isNaN(from) || isNaN(to) || to <= from) throw new HttpError(400, 'Invalid from/to range');
-  if (to - from > 100 * 86400e3) throw new HttpError(400, 'Range too large (max 100 days)');
-  return [from, to];
+  if (to - from > maxDays * 86400e3) throw new HttpError(400, `Range too large (max ${maxDays} days)`);
+  return [Math.ceil(from.getTime() / 60e3), Math.ceil(to.getTime() / 60e3)];
 }
 
-const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, active: u.active });
+const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, active: !!u.active });
+
+function publicDevice(d) {
+  let macs = [];
+  try { macs = JSON.parse(d.last_macs || '[]'); } catch { /* ignore */ }
+  return { ...d, last_macs: Array.isArray(macs) ? macs : [] };
+}
+
+const userById = async id => (await q('SELECT * FROM users WHERE id = ?', [id]))[0];
+const deviceById = async id => (await q('SELECT * FROM devices WHERE id = ?', [id]))[0];
 
 // Small in-memory limiter for login attempts: 10 failures per 15 min per ip+email.
 const fails = new Map();
@@ -59,8 +70,7 @@ async function verifyCredentials(req) {
   const password = String(req.body?.password || '');
   const key = `${req.ip}|${email}`;
   checkLoginLimit(key);
-  const { rows } = await q('SELECT * FROM users WHERE email = $1', [email]);
-  const user = rows[0];
+  const user = (await q('SELECT * FROM users WHERE email = ?', [email]))[0];
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     noteLoginFail(key);
     throw new HttpError(401, 'Wrong email or password');
@@ -79,15 +89,14 @@ function auth(kind) {
     let p;
     try { p = jwt.verify(token, JWT_SECRET); } catch { throw new HttpError(401, 'Session expired, please sign in again'); }
     if (p.kind !== kind) throw new HttpError(401, 'Invalid token');
-    const { rows } = await q('SELECT * FROM users WHERE id = $1', [p.uid]);
-    const user = rows[0];
+    const user = await userById(p.uid);
     if (!user || !user.active) throw new HttpError(401, 'Account not available');
     req.user = user;
     if (kind === 'desktop') {
-      const d = await q('SELECT * FROM devices WHERE id = $1 AND user_id = $2', [p.did, user.id]);
-      if (!d.rows[0] || d.rows[0].status !== 'approved')
+      const device = (await q('SELECT * FROM devices WHERE id = ? AND user_id = ?', [p.did, user.id]))[0];
+      if (!device || device.status !== 'approved')
         throw new HttpError(403, 'This device is no longer approved', 'DEVICE_NOT_APPROVED');
-      req.device = d.rows[0];
+      req.device = device;
     }
     next();
   });
@@ -111,34 +120,32 @@ web.post('/me/password', wrap(async (req, res) => {
   const { current, next } = req.body || {};
   if (!(await bcrypt.compare(String(current || ''), req.user.password_hash))) throw new HttpError(400, 'Current password is wrong');
   if (String(next || '').length < 8) throw new HttpError(400, 'New password must be at least 8 characters');
-  await q('UPDATE users SET password_hash = $1 WHERE id = $2', [await bcrypt.hash(String(next), 10), req.user.id]);
+  await q('UPDATE users SET password_hash = ? WHERE id = ?', [await bcrypt.hash(String(next), 10), req.user.id]);
   res.json({ ok: true });
 }));
 
 // Minute rows for a range. Users get their own; admins may pass userId.
 // Row format is compact: [epochMinute, seconds, mouse, keys]
 web.get('/activity', wrap(async (req, res) => {
-  const [from, to] = parseRange(req);
-  if (to - from > 32 * 86400e3) throw new HttpError(400, 'Range too large (max 32 days)');
+  const [from, to] = parseRange(req, 32);
   let uid = req.user.id;
   if (req.query.userId && Number(req.query.userId) !== uid) {
     if (req.user.role !== 'admin') throw new HttpError(403, 'Admins only');
     uid = Number(req.query.userId);
   }
-  const { rows } = await q(
-    `SELECT (extract(epoch FROM t) / 60)::int AS m, seconds, mouse, keys
-       FROM activity_minutes WHERE user_id = $1 AND t >= $2 AND t < $3 ORDER BY t`,
+  const rows = await q(
+    'SELECT t, seconds, mouse, key_presses FROM activity_minutes WHERE user_id = ? AND t >= ? AND t < ? ORDER BY t',
     [uid, from, to]
   );
-  res.json({ minutes: rows.map(r => [r.m, r.seconds, r.mouse, r.keys]) });
+  res.json({ minutes: rows.map(r => [r.t, r.seconds, r.mouse, r.key_presses]) });
 }));
 
 web.get('/devices', wrap(async (req, res) => {
-  const { rows } = await q(
-    `SELECT id, mac, hostname, os, label, status, created_at, last_seen_at FROM devices WHERE user_id = $1 ORDER BY created_at`,
+  const devices = await q(
+    'SELECT id, mac, hostname, os, label, status, created_at, last_seen_at FROM devices WHERE user_id = ? ORDER BY created_at',
     [req.user.id]
   );
-  res.json({ devices: rows });
+  res.json({ devices });
 }));
 
 // ---------- admin ----------
@@ -147,14 +154,16 @@ const admin = express.Router();
 admin.use(adminOnly);
 
 admin.get('/users', wrap(async (req, res) => {
-  const { rows } = await q(`
+  const rows = await q(`
     SELECT u.id, u.email, u.name, u.role, u.active, u.created_at,
-           count(d.id) FILTER (WHERE d.status = 'approved')::int AS approved_devices,
-           count(d.id) FILTER (WHERE d.status = 'pending')::int  AS pending_devices,
-           max(d.last_seen_at) AS last_seen_at
+           COALESCE(SUM(d.status = 'approved'), 0) AS approved_devices,
+           COALESCE(SUM(d.status = 'pending'), 0)  AS pending_devices,
+           MAX(d.last_seen_at) AS last_seen_at
       FROM users u LEFT JOIN devices d ON d.user_id = u.id
      GROUP BY u.id ORDER BY u.name`);
-  res.json({ users: rows });
+  res.json({
+    users: rows.map(u => ({ ...u, active: !!u.active, approved_devices: Number(u.approved_devices), pending_devices: Number(u.pending_devices) })),
+  });
 }));
 
 admin.post('/users', wrap(async (req, res) => {
@@ -166,13 +175,11 @@ admin.post('/users', wrap(async (req, res) => {
   if (!name) throw new HttpError(400, 'Name is required');
   if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
   try {
-    const { rows } = await q(
-      'INSERT INTO users (email, name, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING *',
-      [email, name, await bcrypt.hash(password, 10), role]
-    );
-    res.status(201).json({ user: publicUser(rows[0]) });
+    const r = await q('INSERT INTO users (email, name, password_hash, role) VALUES (?,?,?,?)',
+      [email, name, await bcrypt.hash(password, 10), role]);
+    res.status(201).json({ user: publicUser(await userById(r.insertId)) });
   } catch (e) {
-    if (e.code === '23505') throw new HttpError(409, 'A user with this email already exists');
+    if (isDuplicate(e)) throw new HttpError(409, 'A user with this email already exists');
     throw e;
   }
 }));
@@ -181,7 +188,7 @@ admin.patch('/users/:id', wrap(async (req, res) => {
   const id = Number(req.params.id);
   const b = req.body || {};
   const sets = [], vals = [];
-  const set = (col, v) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
+  const set = (col, v) => { sets.push(`${col} = ?`); vals.push(v); };
   if (b.email !== undefined) {
     const email = String(b.email).trim().toLowerCase();
     if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
@@ -198,35 +205,34 @@ admin.patch('/users/:id', wrap(async (req, res) => {
   if (b.role !== undefined || b.active !== undefined) {
     if (id === req.user.id) throw new HttpError(400, 'You cannot change your own role or disable yourself');
     if (b.role !== undefined) set('role', b.role === 'admin' ? 'admin' : 'user');
-    if (b.active !== undefined) set('active', !!b.active);
+    if (b.active !== undefined) set('active', b.active ? 1 : 0);
   }
   if (!sets.length) throw new HttpError(400, 'Nothing to update');
-  vals.push(id);
+  if (!(await userById(id))) throw new HttpError(404, 'User not found');
   try {
-    const { rows } = await q(`UPDATE users SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals);
-    if (!rows[0]) throw new HttpError(404, 'User not found');
-    res.json({ user: publicUser(rows[0]) });
+    await q(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
   } catch (e) {
-    if (e.code === '23505') throw new HttpError(409, 'A user with this email already exists');
+    if (isDuplicate(e)) throw new HttpError(409, 'A user with this email already exists');
     throw e;
   }
+  res.json({ user: publicUser(await userById(id)) });
 }));
 
 admin.delete('/users/:id', wrap(async (req, res) => {
   const id = Number(req.params.id);
   if (id === req.user.id) throw new HttpError(400, 'You cannot delete yourself');
-  const r = await q('DELETE FROM users WHERE id = $1', [id]);
-  if (!r.rowCount) throw new HttpError(404, 'User not found');
+  const r = await q('DELETE FROM users WHERE id = ?', [id]);
+  if (!r.affectedRows) throw new HttpError(404, 'User not found');
   res.json({ ok: true });
 }));
 
 admin.get('/devices', wrap(async (req, res) => {
-  const { rows } = await q(`
+  const rows = await q(`
     SELECT d.id, d.user_id, u.name AS user_name, u.email AS user_email, d.mac, d.machine_id, d.last_macs,
            d.hostname, d.os, d.label, d.status, d.created_at, d.decided_at, d.last_seen_at
       FROM devices d JOIN users u ON u.id = d.user_id
-     ORDER BY (d.status = 'pending') DESC, d.created_at DESC`);
-  res.json({ devices: rows });
+     ORDER BY (d.status = 'pending') DESC, d.created_at DESC, d.id DESC`);
+  res.json({ devices: rows.map(publicDevice) });
 }));
 
 // Admin assigns a device to a user by MAC address ahead of time (already approved).
@@ -234,49 +240,55 @@ admin.post('/users/:id/devices', wrap(async (req, res) => {
   const userId = Number(req.params.id);
   const mac = normMac(req.body?.mac);
   if (!mac) throw new HttpError(400, 'Enter a valid MAC address, e.g. 3C:52:82:1A:9F:10');
-  const u = await q('SELECT 1 FROM users WHERE id = $1', [userId]);
-  if (!u.rows[0]) throw new HttpError(404, 'User not found');
-  const dup = await q('SELECT 1 FROM devices WHERE user_id = $1 AND (mac = $2 OR $2 = ANY(last_macs))', [userId, mac]);
-  if (dup.rows[0]) throw new HttpError(409, 'This MAC address is already listed for this user');
-  const { rows } = await q(
-    `INSERT INTO devices (user_id, mac, label, status, decided_at) VALUES ($1,$2,$3,'approved', now()) RETURNING *`,
+  if (!(await userById(userId))) throw new HttpError(404, 'User not found');
+  const existing = await q('SELECT mac, last_macs FROM devices WHERE user_id = ?', [userId]);
+  if (existing.some(d => d.mac === mac || publicDevice(d).last_macs.includes(mac)))
+    throw new HttpError(409, 'This MAC address is already listed for this user');
+  const r = await q(
+    `INSERT INTO devices (user_id, mac, label, status, decided_at) VALUES (?,?,?,'approved', NOW())`,
     [userId, mac, String(req.body?.label || '').trim() || null]
   );
-  res.status(201).json({ device: rows[0] });
+  res.status(201).json({ device: publicDevice(await deviceById(r.insertId)) });
 }));
 
 admin.patch('/devices/:id', wrap(async (req, res) => {
+  const id = Number(req.params.id);
   const b = req.body || {};
   const sets = [], vals = [];
   if (b.status !== undefined) {
     if (!['approved', 'revoked', 'pending'].includes(b.status)) throw new HttpError(400, 'Invalid status');
-    vals.push(b.status); sets.push(`status = $${vals.length}`, 'decided_at = now()');
+    sets.push('status = ?', 'decided_at = NOW()'); vals.push(b.status);
   }
-  if (b.label !== undefined) { vals.push(String(b.label).trim() || null); sets.push(`label = $${vals.length}`); }
+  if (b.label !== undefined) { sets.push('label = ?'); vals.push(String(b.label).trim() || null); }
   if (!sets.length) throw new HttpError(400, 'Nothing to update');
-  vals.push(Number(req.params.id));
-  const { rows } = await q(`UPDATE devices SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals);
-  if (!rows[0]) throw new HttpError(404, 'Device not found');
-  res.json({ device: rows[0] });
+  if (!(await deviceById(id))) throw new HttpError(404, 'Device not found');
+  await q(`UPDATE devices SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
+  res.json({ device: publicDevice(await deviceById(id)) });
 }));
 
 admin.delete('/devices/:id', wrap(async (req, res) => {
-  const r = await q('DELETE FROM devices WHERE id = $1', [Number(req.params.id)]);
-  if (!r.rowCount) throw new HttpError(404, 'Device not found');
+  const r = await q('DELETE FROM devices WHERE id = ?', [Number(req.params.id)]);
+  if (!r.affectedRows) throw new HttpError(404, 'Device not found');
   res.json({ ok: true });
 }));
 
 // Worked / idle seconds per user for a range (team report).
 admin.get('/summary', wrap(async (req, res) => {
   const [from, to] = parseRange(req);
-  const { rows } = await q(`
+  const rows = await q(`
     SELECT u.id, u.name, u.email, u.active,
-           coalesce(sum(a.seconds), 0)::int AS total,
-           coalesce(sum(a.seconds) FILTER (WHERE a.mouse + a.keys = 0), 0)::int AS idle,
-           max(a.t) AS last_activity
-      FROM users u LEFT JOIN activity_minutes a ON a.user_id = u.id AND a.t >= $1 AND a.t < $2
+           COALESCE(SUM(a.seconds), 0) AS total,
+           COALESCE(SUM(CASE WHEN a.mouse + a.key_presses = 0 THEN a.seconds ELSE 0 END), 0) AS idle,
+           MAX(a.t) AS last_t
+      FROM users u LEFT JOIN activity_minutes a ON a.user_id = u.id AND a.t >= ? AND a.t < ?
      GROUP BY u.id ORDER BY u.name`, [from, to]);
-  res.json({ users: rows });
+  res.json({
+    users: rows.map(u => ({
+      id: u.id, name: u.name, email: u.email, active: !!u.active,
+      total: Number(u.total), idle: Number(u.idle),
+      last_activity: u.last_t == null ? null : new Date(u.last_t * 60e3).toISOString(),
+    })),
+  });
 }));
 
 web.use('/admin', admin);
@@ -294,34 +306,32 @@ function desktopRouter() {
     const b = req.body || {};
     const macs = [...new Set((Array.isArray(b.macs) ? b.macs : []).map(normMac).filter(Boolean))].slice(0, 16);
     const machineId = String(b.machineId || '').trim().slice(0, 100);
-    const hostname = String(b.hostname || '').trim().slice(0, 100) || null;
+    const hostname = String(b.hostname || '').trim().slice(0, 190) || null;
     const os = String(b.os || '').trim().slice(0, 100) || null;
     if (!macs.length || !machineId) throw new HttpError(400, 'Could not read this device\'s MAC address', 'NO_DEVICE_ID');
 
     // 1) same machine as before  2) a MAC the admin pre-assigned that no machine has claimed yet
-    let { rows } = await q('SELECT * FROM devices WHERE user_id = $1 AND machine_id = $2', [user.id, machineId]);
-    let device = rows[0];
+    let device = (await q('SELECT * FROM devices WHERE user_id = ? AND machine_id = ?', [user.id, machineId]))[0];
     if (!device) {
-      ({ rows } = await q(
-        'SELECT * FROM devices WHERE user_id = $1 AND machine_id IS NULL AND mac = ANY($2) ORDER BY id LIMIT 1',
+      device = (await q(
+        'SELECT * FROM devices WHERE user_id = ? AND machine_id IS NULL AND mac IN (?) ORDER BY id LIMIT 1',
         [user.id, macs]
-      ));
-      device = rows[0];
+      ))[0];
     }
+    let deviceId;
     if (device) {
-      ({ rows } = await q(
-        `UPDATE devices SET machine_id = $1, last_macs = $2, hostname = $3, os = $4, last_seen_at = now() WHERE id = $5 RETURNING *`,
-        [machineId, macs, hostname, os, device.id]
-      ));
-      device = rows[0];
+      deviceId = device.id;
+      await q('UPDATE devices SET machine_id = ?, last_macs = ?, hostname = ?, os = ?, last_seen_at = NOW() WHERE id = ?',
+        [machineId, JSON.stringify(macs), hostname, os, deviceId]);
     } else {
-      ({ rows } = await q(
+      const ins = await q(
         `INSERT INTO devices (user_id, mac, machine_id, last_macs, hostname, os, status, last_seen_at)
-         VALUES ($1,$2,$3,$4,$5,$6,'pending', now()) RETURNING *`,
-        [user.id, macs[0], machineId, macs, hostname, os]
-      ));
-      device = rows[0];
+         VALUES (?,?,?,?,?,?,'pending', NOW())`,
+        [user.id, macs[0], machineId, JSON.stringify(macs), hostname, os]
+      );
+      deviceId = ins.insertId;
     }
+    device = await deviceById(deviceId);
 
     if (device.status === 'pending')
       throw new HttpError(403, 'This device is waiting for admin approval. Ask your admin to approve it, then sign in again.', 'DEVICE_PENDING');
@@ -338,47 +348,48 @@ function desktopRouter() {
   r.post('/activity', wrap(async (req, res) => {
     const list = Array.isArray(req.body?.minutes) ? req.body.minutes : null;
     if (!list || list.length > 5000) throw new HttpError(400, 'Invalid payload');
-    const now = Date.now();
-    const ts = [], secs = [], mouse = [], keys = [];
+    const nowMin = Math.floor(Date.now() / 60e3);
+    const byMinute = new Map();
     for (const m of list) {
-      const t = Number(m.t) * 60e3; // epoch minutes
-      const s = Math.floor(Number(m.s));
-      if (!Number.isInteger(Number(m.t)) || !(s >= 1)) continue;
-      if (t > now + 5 * 60e3 || t < now - 30 * 86400e3) continue; // ignore future / very old data
-      ts.push(new Date(t)); secs.push(Math.min(60, s));
-      mouse.push(Math.max(0, Math.min(100000, Math.floor(Number(m.m)) || 0)));
-      keys.push(Math.max(0, Math.min(100000, Math.floor(Number(m.k)) || 0)));
+      const t = Number(m.t), s = Math.floor(Number(m.s));
+      if (!Number.isInteger(t) || !(s >= 1)) continue;
+      if (t > nowMin + 5 || t < nowMin - 30 * 1440) continue; // ignore future / very old data
+      const mouse = Math.max(0, Math.min(100000, Math.floor(Number(m.m)) || 0));
+      const keys = Math.max(0, Math.min(100000, Math.floor(Number(m.k)) || 0));
+      const prev = byMinute.get(t);
+      byMinute.set(t, prev
+        ? [req.user.id, t, req.device.id, Math.max(prev[3], Math.min(60, s)), Math.max(prev[4], mouse), Math.max(prev[5], keys)]
+        : [req.user.id, t, req.device.id, Math.min(60, s), mouse, keys]);
     }
-    if (ts.length) {
+    const rows = [...byMinute.values()];
+    for (let i = 0; i < rows.length; i += 500) {
       await q(
-        `INSERT INTO activity_minutes (user_id, t, device_id, seconds, mouse, keys)
-         SELECT $1, x.t, $2, x.s, x.m, x.k
-           FROM (SELECT t, max(s) AS s, max(m) AS m, max(k) AS k
-                   FROM unnest($3::timestamptz[], $4::int[], $5::int[], $6::int[]) AS u(t, s, m, k) GROUP BY t) x
-         ON CONFLICT (user_id, t) DO UPDATE SET
-           seconds = GREATEST(activity_minutes.seconds, EXCLUDED.seconds),
-           mouse   = GREATEST(activity_minutes.mouse, EXCLUDED.mouse),
-           keys    = GREATEST(activity_minutes.keys, EXCLUDED.keys),
-           device_id = EXCLUDED.device_id`,
-        [req.user.id, req.device.id, ts, secs, mouse, keys]
+        `INSERT INTO activity_minutes (user_id, t, device_id, seconds, mouse, key_presses) VALUES ?
+         ON DUPLICATE KEY UPDATE
+           seconds     = GREATEST(seconds, VALUES(seconds)),
+           mouse       = GREATEST(mouse, VALUES(mouse)),
+           key_presses = GREATEST(key_presses, VALUES(key_presses)),
+           device_id   = VALUES(device_id)`,
+        [rows.slice(i, i + 500)]
       );
     }
-    await q('UPDATE devices SET last_seen_at = now() WHERE id = $1', [req.device.id]);
-    res.json({ ok: true, saved: ts.length });
+    await q('UPDATE devices SET last_seen_at = NOW() WHERE id = ?', [req.device.id]);
+    res.json({ ok: true, saved: rows.length });
   }));
 
   // Totals shown in the app. The app passes its own local day / week start.
   r.get('/summary', wrap(async (req, res) => {
     const day = new Date(req.query.dayStart), week = new Date(req.query.weekStart);
     if (isNaN(day) || isNaN(week)) throw new HttpError(400, 'Invalid dates');
-    const { rows } = await q(
-      `SELECT coalesce(sum(seconds) FILTER (WHERE t >= $2), 0)::int AS today,
-              coalesce(sum(seconds) FILTER (WHERE t >= $2 AND mouse + keys = 0), 0)::int AS today_idle,
-              coalesce(sum(seconds), 0)::int AS week
-         FROM activity_minutes WHERE user_id = $1 AND t >= $3`,
-      [req.user.id, day, week]
-    );
-    res.json({ today: rows[0].today, todayIdle: rows[0].today_idle, week: rows[0].week, user: publicUser(req.user) });
+    const dayMin = Math.ceil(day.getTime() / 60e3), weekMin = Math.ceil(week.getTime() / 60e3);
+    const row = (await q(
+      `SELECT COALESCE(SUM(CASE WHEN t >= ? THEN seconds ELSE 0 END), 0) AS today,
+              COALESCE(SUM(CASE WHEN t >= ? AND mouse + key_presses = 0 THEN seconds ELSE 0 END), 0) AS today_idle,
+              COALESCE(SUM(seconds), 0) AS week
+         FROM activity_minutes WHERE user_id = ? AND t >= ?`,
+      [dayMin, dayMin, req.user.id, Math.min(dayMin, weekMin)]
+    ))[0];
+    res.json({ today: Number(row.today), todayIdle: Number(row.today_idle), week: Number(row.week), user: publicUser(req.user) });
   }));
 
   return r;
@@ -388,9 +399,11 @@ function desktopRouter() {
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
+// The built website: server/public (committed, used by Hostinger and Docker) or a fresh web/dist build.
 const here = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = process.env.PUBLIC_DIR || path.join(here, '../public');
-if (fs.existsSync(publicDir)) {
+const publicDir = [process.env.PUBLIC_DIR, path.join(here, '../public'), path.join(here, '../../web/dist')]
+  .find(dir => dir && fs.existsSync(path.join(dir, 'index.html')));
+if (publicDir) {
   app.use(express.static(publicDir, { maxAge: '1h', setHeaders: (res, p) => { if (p.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
   app.get('*', (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 }
@@ -404,4 +417,4 @@ app.use((err, req, res, next) => {
 
 initDb().then(() => {
   app.listen(PORT, () => console.log(`Time tracker server listening on :${PORT}`));
-}).catch(e => { console.error('Could not start:', e); process.exit(1); });
+}).catch(e => { console.error('Could not start:', e.message || e); process.exit(1); });

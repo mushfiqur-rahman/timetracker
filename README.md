@@ -3,8 +3,8 @@
 A small Upwork-style time tracker: a Windows desktop app that counts mouse and keyboard activity while a timer runs, and a website where users see their time in 10-minute blocks and admins manage users and devices.
 
 ```
-server/    API (Node.js + PostgreSQL)
-web/       Website (React), served by the API server
+server/        API (Node.js + MySQL or MariaDB); server/public is the built website
+web/           Website source (React)
 desktop/       Windows 11 app (C#, .NET Framework 4.8 — built into Windows, nothing to install)
 desktop-mac/   macOS app (Swift, macOS 12 or newer, Apple Silicon and Intel)
 ```
@@ -17,7 +17,32 @@ desktop-mac/   macOS app (Swift, macOS 12 or newer, Apple Silicon and Intel)
 - **Devices.** The desktop app sends the computer's MAC address and Windows machine ID when signing in. An unknown computer is registered as *pending* and refused until an admin approves it on the Devices page. An admin can also assign a MAC address to a user in advance (Users → Devices). Blocking a device stops the app on that computer within a few minutes.
 - **Offline.** Minutes tracked without a connection are saved on the PC and uploaded later.
 
-## Deploy the website on a VPS (Docker)
+## Deploy on Hostinger Business Web Hosting (no Docker)
+
+Hostinger's Business and Cloud plans can run Node.js apps. Nothing needs to be built on the server: the website is already built in `server/public`.
+
+1. **Create the database.** hPanel → **Databases → Management** → create a MySQL database and user. Note the database name, user name and password.
+2. **Add the app.** hPanel → **Websites → Add Website → Node.js web app** → connect GitHub and choose this repository, branch `main`.
+3. **Check the settings** Hostinger proposes: framework **Express**, entry file **`server.js`**, build command **empty**, Node.js **20 or 22**.
+4. **Add environment variables** (Environment variables in the app's dashboard):
+
+   | Name | Value |
+   | --- | --- |
+   | `DB_HOST` | `127.0.0.1` (or the host hPanel shows for the database) |
+   | `DB_NAME` | the database name from step 1 |
+   | `DB_USER` | the database user from step 1 |
+   | `DB_PASSWORD` | that user's password |
+   | `JWT_SECRET` | a long random string, at least 32 characters |
+   | `ADMIN_EMAIL` | email for the first admin account |
+   | `ADMIN_PASSWORD` | password for the first admin account |
+
+5. **Deploy**, then open your domain and sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`. The tables are created automatically on first start.
+
+Do not set `PORT`; Hostinger assigns it. In the desktop apps, the server address is `https://your-domain`.
+
+After changing the website source in `web/`, run `npm run build:web` on your PC and commit the updated `server/public` folder.
+
+## Deploy on a VPS (Docker)
 
 1. Point a domain (A record) to the VPS and open ports 80 and 443.
 2. Copy this folder to the VPS, then:
@@ -35,9 +60,9 @@ Caddy gets the HTTPS certificate automatically. If you already run a reverse pro
 Useful commands:
 
 ```bash
-docker compose logs -f app                                           # server log
-docker compose exec db pg_dump -U timetracker timetracker > backup.sql   # backup
-docker compose up -d --build                                         # update after changing code
+docker compose logs -f app                                   # server log
+docker compose exec db sh -c 'mariadb-dump -u timetracker -p"$MARIADB_PASSWORD" timetracker' > backup.sql   # backup
+docker compose up -d --build                                 # update after changing code
 ```
 
 ## Desktop app (Windows)
@@ -66,7 +91,7 @@ The ready-built app is `desktop-mac/dist/TimeTracker-mac.zip`. Unzip it and drag
 - The red close button hides the window; the timer keeps running. Use the clock icon in the menu bar to open the window, start or stop, or quit.
 - The device is identified by the Mac's hardware UUID plus its MAC address. Recent macOS versions can use a private Wi-Fi address, so the Devices page may show "MAC changed" for a Mac; the approval still holds because it is tied to the hardware UUID.
 
-Every change under `desktop-mac/` is built and tested automatically on a real Mac by GitHub Actions (`.github/workflows/mac.yml`); the result is published to the `mac-build` branch. To build it yourself on a Mac with Xcode:
+The Mac app can be built and tested on GitHub's Mac servers by starting the "Build macOS app" workflow by hand from the repository's Actions tab (it never runs automatically); the result is published to the `mac-build` branch. To build it yourself on a Mac with Xcode:
 
 ```bash
 cd desktop-mac
@@ -83,9 +108,9 @@ cd desktop-mac
 
 ```bash
 # database
-docker run -d --name tt-db -e POSTGRES_USER=timetracker -e POSTGRES_PASSWORD=timetracker -e POSTGRES_DB=timetracker -p 5432:5432 postgres:16-alpine
-# API on :3000
-cd server && npm install && JWT_SECRET=dev-secret-change-me-123 npm start
-# website on :5173 (proxies /api to :3000)
+docker run -d --name tt-db -e MARIADB_DATABASE=timetracker -e MARIADB_USER=timetracker -e MARIADB_PASSWORD=timetracker -e MARIADB_RANDOM_ROOT_PASSWORD=1 -p 3306:3306 mariadb:11
+# API + built website on :3000
+npm install && DB_PASSWORD=timetracker JWT_SECRET=dev-secret-change-me-123 npm start
+# website with live reload on :5173 (proxies /api to :3000)
 cd web && npm install && npm run dev
 ```

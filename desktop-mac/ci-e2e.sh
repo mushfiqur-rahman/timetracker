@@ -8,18 +8,18 @@ BIN="$ROOT/desktop-mac/dist/TimeTracker.app/Contents/MacOS/TimeTracker"
 API=http://127.0.0.1:3111/api
 mkdir -p "$OUT"
 
-if ! command -v initdb >/dev/null; then
-  brew install postgresql@16 >/dev/null
-  export PATH="$(brew --prefix postgresql@16)/bin:$PATH"
-fi
-rm -rf /tmp/ttpg
-initdb -D /tmp/ttpg -U postgres -A trust >/dev/null
-pg_ctl -D /tmp/ttpg -o "-p 5433" -l /tmp/ttpg.log -w start
-createdb -h 127.0.0.1 -p 5433 -U postgres tt
+# temporary database and server on this build machine only
+brew install mariadb >/dev/null 2>&1
+brew services start mariadb >/dev/null 2>&1
+for i in $(seq 1 30); do mariadb -e "select 1" >/dev/null 2>&1 && break; sleep 1; done
+mariadb -e "CREATE DATABASE tt; CREATE USER 'tt'@'127.0.0.1' IDENTIFIED BY 'ttpw'; CREATE USER 'tt'@'localhost' IDENTIFIED BY 'ttpw'; GRANT ALL ON tt.* TO 'tt'@'127.0.0.1'; GRANT ALL ON tt.* TO 'tt'@'localhost';"
+sql() { mariadb -N -B tt -e "$1"; }
+cleanup() { pkill -x TimeTracker || true; pkill -f "node server.js" || true; brew services stop mariadb >/dev/null 2>&1 || true; }
+trap cleanup EXIT
 
-(cd "$ROOT/server" && npm ci >/dev/null 2>&1)
-(cd "$ROOT/server" && DATABASE_URL=postgres://postgres@127.0.0.1:5433/tt JWT_SECRET=ci-secret-0123456789abcdef PORT=3111 \
-  ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=admin12345 nohup node src/index.js > "$OUT/server.log" 2>&1 &)
+(cd "$ROOT" && npm ci >/dev/null 2>&1)
+(cd "$ROOT" && DATABASE_URL=mysql://tt:ttpw@127.0.0.1:3306/tt JWT_SECRET=ci-secret-0123456789abcdef PORT=3111 \
+  ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=admin12345 nohup node server.js > "$OUT/server.log" 2>&1 < /dev/null &)
 for i in $(seq 1 30); do curl -s "$API/me" >/dev/null && break; sleep 1; done
 
 post() { curl -s -H 'Content-Type: application/json' "$@"; }
@@ -35,8 +35,8 @@ sleep 8
 screencapture -x "$OUT/mac-1-pending.png" || echo "screenshot not available"
 pkill -x TimeTracker || true
 sleep 1
-psql -h 127.0.0.1 -p 5433 -U postgres tt -c "select id, mac, machine_id, hostname, os, status from devices"
-STATUS=$(psql -At -h 127.0.0.1 -p 5433 -U postgres tt -c "select status from devices limit 1")
+sql "select id, mac, machine_id, hostname, os, status from devices"
+STATUS=$(sql "select status from devices limit 1")
 [ "$STATUS" = "pending" ] || { echo "E2E FAIL: expected a pending device, got '$STATUS'"; exit 1; }
 
 echo "== 2. admin approves, app signs in and tracks"
@@ -46,8 +46,8 @@ sleep 10
 screencapture -x "$OUT/mac-2-tracking.png" || true
 sleep 125
 screencapture -x "$OUT/mac-3-after-2min.png" || true
-psql -h 127.0.0.1 -p 5433 -U postgres tt -c "select t, device_id, seconds, mouse, keys from activity_minutes order by t"
-ROWS=$(psql -At -h 127.0.0.1 -p 5433 -U postgres tt -c "select count(*) from activity_minutes")
+sql "select t, device_id, seconds, mouse, key_presses from activity_minutes order by t"
+ROWS=$(sql "select count(*) from activity_minutes")
 [ "$ROWS" -ge 1 ] || { echo "E2E FAIL: no tracked minutes reached the server"; exit 1; }
 
 echo "== 3. admin blocks the device, the next request from the app is refused"
