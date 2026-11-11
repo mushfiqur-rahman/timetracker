@@ -4,12 +4,15 @@ import IOKit
 
 // MARK: - Input activity
 
-/// Counts mouse clicks, scroll steps and key presses for the whole login session, on every display.
+/// Counts mouse clicks, scroll steps, mouse movement and key presses for the whole login session, on every display.
+/// Movement counts as one mouse action for each second in which the pointer moved.
 /// It reads macOS' own running totals once a second, so the app never sees which key was pressed
 /// and needs no Accessibility or Input Monitoring permission.
 final class InputCounter {
     private static let mouseTypes: [CGEventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+    private static let moveTypes: [CGEventType] = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
     private var lastMouse: UInt32 = 0
+    private var lastMoves: UInt32 = 0
     private var lastKeys: UInt32 = 0
 
     private static func total(_ types: [CGEventType]) -> UInt32 {
@@ -22,6 +25,7 @@ final class InputCounter {
 
     func reset() {
         lastMouse = InputCounter.total(InputCounter.mouseTypes)
+        lastMoves = InputCounter.total(InputCounter.moveTypes)
         lastKeys = InputCounter.total([.keyDown])
     }
 
@@ -31,10 +35,13 @@ final class InputCounter {
         let keys = InputCounter.total([.keyDown])
         let dm = mouse &- lastMouse
         let dk = keys &- lastKeys
+        let moves = InputCounter.total(InputCounter.moveTypes)
+        let moved = moves != lastMoves ? 1 : 0     // movement: at most 1 per call
         lastMouse = mouse
+        lastMoves = moves
         lastKeys = keys
         // a huge jump means the system counters restarted: ignore that one reading
-        return (dm > 1_000_000 ? 0 : Int(dm), dk > 1_000_000 ? 0 : Int(dk))
+        return ((dm > 1_000_000 ? 0 : Int(dm)) + moved, dk > 1_000_000 ? 0 : Int(dk))
     }
 }
 

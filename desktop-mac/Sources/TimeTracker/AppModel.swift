@@ -313,7 +313,7 @@ final class AppModel: ObservableObject {
 
         state.bars = tracker.recentMinutes(now)
         if state.running, let cur = tracker.current {
-            state.counts = "This minute: \(cur.m) mouse clicks/scrolls, \(cur.k) key presses"
+            state.counts = "This minute: \(cur.m) mouse actions, \(cur.k) key presses"
         } else {
             state.counts = "Green = active, amber = idle, grey = not tracked"
         }

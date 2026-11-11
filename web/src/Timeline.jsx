@@ -124,7 +124,7 @@ export default function Timeline({ title, subtitle, userId, onBack }) {
             <div className="blocks">
               {blocks.map((b, i) => (
                 <div key={i} className={`block ${b.total ? '' : 'none'}`}
-                  title={b.total ? `${hm(h, i * 10)} ${ampm(h)} – ${i === 5 ? `${hm(h + 1, 0)} ${ampm(h + 1)}` : `${hm(h, i * 10 + 10)} ${ampm(h)}`}\n${b.mouse} mouse clicks, ${b.keys} key presses` : 'Not tracked'}>
+                  title={b.total ? `${hm(h, i * 10)} ${ampm(h)} – ${i === 5 ? `${hm(h + 1, 0)} ${ampm(h + 1)}` : `${hm(h, i * 10 + 10)} ${ampm(h)}`}\n${b.mouse} mouse actions (clicks, scrolls, movement), ${b.keys} key presses` : 'Not tracked'}>
                   <div className="btime">{hm(h, i * 10)} {ampm(h)}</div>
                   <div className="mins">
                     {b.mins.map((m, k) => <span key={k} className={`min ${m || ''}`} />)}

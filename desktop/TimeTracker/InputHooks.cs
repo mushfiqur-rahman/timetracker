@@ -5,7 +5,8 @@ using System.Threading;
 namespace TimeTracker
 {
     /// <summary>
-    /// Counts mouse clicks / wheel steps and key presses system-wide while the timer is running.
+    /// Counts mouse clicks, wheel steps, mouse movement and key presses system-wide while the timer is running.
+    /// Movement counts as one mouse action for each second in which the pointer really moved.
     /// Only counts are kept. Which key was pressed is used solely to ignore auto-repeat of a held key
     /// and is never stored or sent anywhere.
     /// Runs on its own thread so the app can never slow down the user's mouse or keyboard.
@@ -27,6 +28,7 @@ namespace TimeTracker
 
         private const int WH_KEYBOARD_LL = 13, WH_MOUSE_LL = 14;
         private const int WM_QUIT = 0x12, WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105;
+        private const int WM_MOUSEMOVE = 0x200, MoveThresholdPixels = 8;
         private const int WM_LBUTTONDOWN = 0x201, WM_RBUTTONDOWN = 0x204, WM_MBUTTONDOWN = 0x207, WM_MOUSEWHEEL = 0x20A, WM_XBUTTONDOWN = 0x20B;
 
         private readonly HookProc _mouseProc, _keyProc; // kept in fields so the GC cannot collect them while hooked
@@ -35,7 +37,8 @@ namespace TimeTracker
         private Thread _thread;
         private uint _threadId;
         private IntPtr _mouseHook, _keyHook;
-        private int _mouse, _keys;
+        private int _mouse, _keys, _moved;
+        private int _lastX = int.MinValue, _lastY;   // only touched on the hook thread
 
         /// <summary>False if Windows refused the hooks (activity cannot be counted).</summary>
         public bool Working { get; private set; }
@@ -64,13 +67,14 @@ namespace TimeTracker
             t.Join(1000);
             Working = false;
             Interlocked.Exchange(ref _mouse, 0);
+            Interlocked.Exchange(ref _moved, 0);
             Interlocked.Exchange(ref _keys, 0);
         }
 
         /// <summary>Returns and resets what was counted since the last call.</summary>
         public void Take(out int mouse, out int keys)
         {
-            mouse = Interlocked.Exchange(ref _mouse, 0);
+            mouse = Interlocked.Exchange(ref _mouse, 0) + Interlocked.Exchange(ref _moved, 0);   // movement: at most 1 per call
             keys = Interlocked.Exchange(ref _keys, 0);
         }
 
@@ -113,6 +117,17 @@ namespace TimeTracker
                 int m = wParam.ToInt32();
                 if (m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN || m == WM_MBUTTONDOWN || m == WM_XBUTTONDOWN || m == WM_MOUSEWHEEL)
                     Interlocked.Increment(ref _mouse);
+                else if (m == WM_MOUSEMOVE)
+                {
+                    // MSLLHOOKSTRUCT starts with the pointer position. Ignore tiny jitter (a bumped desk, sensor noise).
+                    int x = Marshal.ReadInt32(lParam), y = Marshal.ReadInt32(lParam, 4);
+                    if (_lastX == int.MinValue) { _lastX = x; _lastY = y; }
+                    else if (Math.Abs(x - _lastX) + Math.Abs(y - _lastY) >= MoveThresholdPixels)
+                    {
+                        _lastX = x; _lastY = y;
+                        Interlocked.Exchange(ref _moved, 1);
+                    }
+                }
             }
             return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
         }

@@ -433,7 +433,7 @@ namespace TimeTracker
             _bars.SetStates(_tracker.RecentMinutes(now));
             var cur = _tracker.Current;
             SetText(_lblCounts, running && cur != null
-                ? "This minute: " + cur.M + " mouse clicks, " + cur.K + " key presses"
+                ? "This minute: " + cur.M + " mouse actions, " + cur.K + " key presses"
                 : "Green = active, amber = idle, grey = not tracked");
 
             int waiting = _tracker.Queue.Count;

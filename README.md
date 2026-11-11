@@ -30,8 +30,8 @@ A small Upwork-style time tracker for a team.
 
 | Topic | Behaviour |
 | --- | --- |
-| Tracking | While the timer is on, the app counts mouse clicks, scroll steps and key presses per minute, on all monitors. Only the counts are stored, never which keys were pressed. |
-| Idle time | A tracked minute with no clicks and no key presses is idle. After 5 minutes without activity the app shows one notification. The timer keeps running and that time is recorded as idle. |
+| Tracking | While the timer is on, the app counts mouse clicks, scroll steps, mouse movement and key presses per minute, on all monitors. Movement counts as one mouse action for each second the pointer moves. Only the counts are stored, never which keys were pressed. |
+| Idle time | A tracked minute with no mouse activity and no key presses is idle. After 5 minutes without activity the app shows one notification. The timer keeps running and that time is recorded as idle. |
 | Timeline | The website shows each day in 10-minute blocks with worked and idle minutes, plus a week overview. Times use the 12-hour clock. |
 | Devices | The desktop app identifies the computer by its MAC address and hardware ID. A new computer is refused until an admin approves it. |
 | Accounts | People create their own account with their own email and password, and an admin approves it. An admin can also add someone and send them a one-time link to choose a password. |
