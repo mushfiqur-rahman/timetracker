@@ -85,14 +85,7 @@ const SCHEMA = [
 ];
 
 export async function initDb() {
-  // Wait for the database to accept connections (docker compose start order).
-  for (let i = 0; ; i++) {
-    try { await q('SELECT 1'); break; }
-    catch (e) {
-      if (i >= 30 || e.code === 'ER_ACCESS_DENIED_ERROR' || e.code === 'ER_BAD_DB_ERROR') throw e;
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }
+  await q('SELECT 1');
   for (const sql of SCHEMA) await q(sql);
 
   const admins = await q(`SELECT 1 FROM users WHERE role = 'admin' LIMIT 1`);

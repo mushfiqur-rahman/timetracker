@@ -2,9 +2,10 @@
   "name": "timetracker",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "main": "server.js",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "build:web": "npm --prefix web ci && npm --prefix web run build && rm -rf server/public && cp -r web/dist server/public"

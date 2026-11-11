@@ -7,15 +7,37 @@ import { fileURLToPath } from 'node:url';
 import { q, initDb } from './db.js';
 
 const PORT = Number(process.env.PORT || 3000);
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 16) {
-  console.error('JWT_SECRET must be set to a random string of at least 16 characters.');
-  process.exit(1);
+const JWT_SECRET = process.env.JWT_SECRET || '';
+
+// While the configuration is wrong the server stays up and explains the problem on every page,
+// instead of crashing (which hosting panels only show as "503").
+let setupError = 'The server is starting. Reload in a few seconds.';
+
+function describeStartupProblem(e) {
+  const missing = ['DB_NAME', 'DB_USER', 'DB_PASSWORD'].filter(n => !process.env[n]);
+  if (!process.env.DATABASE_URL && missing.length)
+    return `These environment variables are not set: ${missing.join(', ')}.`;
+  switch (e && e.code) {
+    case 'ER_ACCESS_DENIED_ERROR': return 'The database refused the user name or password. Check DB_USER and DB_PASSWORD.';
+    case 'ER_DBACCESS_DENIED_ERROR':
+    case 'ER_BAD_DB_ERROR': return 'The database was not found or this user may not use it. Check DB_NAME, and that the user is assigned to that database.';
+    case 'ECONNREFUSED':
+    case 'ENOTFOUND':
+    case 'ETIMEDOUT':
+    case 'EHOSTUNREACH': return `Cannot reach the database server (${e.code}). Check DB_HOST: try 127.0.0.1, localhost, or the host shown next to the database in your hosting panel.`;
+    default: return `The database could not be prepared (${(e && e.code) || 'unknown error'}).`;
+  }
 }
 
 const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+app.use((req, res, next) => {
+  if (!setupError) return next();
+  const text = `Time Tracker is not configured yet.\n\n${setupError}\n\nFix the environment variables in your hosting panel, then restart the app.`;
+  if (req.path.startsWith('/api/')) return res.status(503).json({ error: text });
+  res.status(503).type('text/plain').send(text);
+});
 app.use(express.json({ limit: '1mb' }));
 
 // ---------- helpers ----------
@@ -415,6 +437,22 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Server error' });
 });
 
-initDb().then(() => {
-  app.listen(PORT, () => console.log(`Time tracker server listening on :${PORT}`));
-}).catch(e => { console.error('Could not start:', e.message || e); process.exit(1); });
+app.listen(PORT, () => console.log(`Time tracker server listening on :${PORT}`));
+
+async function boot() {
+  if (JWT_SECRET.length < 16) {
+    setupError = 'JWT_SECRET is missing or too short. Set it to a random string of at least 32 characters.';
+    console.error(setupError);
+    return;
+  }
+  try {
+    await initDb();
+    setupError = null;
+    console.log('Database ready');
+  } catch (e) {
+    setupError = describeStartupProblem(e);
+    console.error('Startup problem:', setupError, '-', e.message || e);
+    setTimeout(boot, 5000).unref();   // also covers a database that is still starting (Docker)
+  }
+}
+boot();
