@@ -1,0 +1,55 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop-mac/**', '.github/workflows/mac.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          mkdir -p out
+          ./desktop-mac/build.sh 2>&1 | tee out/build.log
+
+      - name: Self test
+        run: |
+          set -o pipefail
+          desktop-mac/dist/TimeTracker.app/Contents/MacOS/TimeTracker --selftest 2>&1 | tee out/selftest.log
+
+      - name: End-to-end test
+        run: |
+          set -o pipefail
+          bash desktop-mac/ci-e2e.sh 2>&1 | tee out/e2e.log
+
+      - name: Upload app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TimeTracker-mac
+          path: |
+            desktop-mac/dist/TimeTracker-mac.zip
+            out/
+
+      # Publishes the built app, logs and screenshots to the "mac-build" branch.
+      - name: Publish build output
+        if: always()
+        run: |
+          mkdir -p out
+          cp desktop-mac/dist/TimeTracker-mac.zip out/ 2>/dev/null || true
+          echo "commit $GITHUB_SHA - job status: ${{ job.status }}" > out/status.txt
+          cd out
+          git init -q -b mac-build
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -qm "macOS build of $GITHUB_SHA"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" mac-build
