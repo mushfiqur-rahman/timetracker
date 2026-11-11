@@ -1,9 +1,7 @@
 name: Build macOS app
 
+# Runs only when started by hand from the Actions tab. Nothing runs automatically.
 on:
-  push:
-    branches: [main]
-    paths: ['desktop-mac/**', '.github/workflows/mac.yml']
   workflow_dispatch:
 
 permissions:
