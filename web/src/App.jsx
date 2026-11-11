@@ -10,7 +10,8 @@ export default function App() {
   const [loading, setLoading] = useState(!!getToken());
   const [page, setPage] = useState('time');
   const [viewUser, setViewUser] = useState(null); // admin or manager looking at one person's timeline
-  const [pending, setPending] = useState(0);
+  const [pending, setPending] = useState(0);            // devices waiting for approval
+  const [pendingUsers, setPendingUsers] = useState(0);  // self sign-ups waiting for approval
   const [setupToken, setSetupToken] = useState(setupTokenFromUrl);
 
   const signOut = () => { setToken(null); setUser(null); setPage('time'); setViewUser(null); };
@@ -25,7 +26,9 @@ export default function App() {
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'manager';
   const refreshPending = () => {
-    if (isAdmin) api('/admin/devices').then(d => setPending(d.devices.filter(x => x.status === 'pending').length)).catch(() => {});
+    if (!isAdmin) return;
+    api('/admin/devices').then(d => setPending(d.devices.filter(x => x.status === 'pending').length)).catch(() => {});
+    api('/admin/users').then(d => setPendingUsers(d.users.filter(x => !x.approved).length)).catch(() => {});
   };
   useEffect(() => {
     if (!isAdmin) return;
@@ -69,6 +72,7 @@ export default function App() {
             <button key={id} className={`tab ${page === id ? 'active' : ''}`} onClick={() => go(id)}>
               {label}
               {id === 'devices' && pending > 0 && <span className="badge">{pending}</span>}
+              {id === 'users' && pendingUsers > 0 && <span className="badge">{pendingUsers}</span>}
             </button>
           ))}
         </nav>
@@ -81,7 +85,7 @@ export default function App() {
         {(isAdmin || isManager) && page === 'team' && (viewUser
           ? <Timeline title={viewUser.name} subtitle={viewUser.email} userId={viewUser.id} onBack={() => setViewUser(null)} />
           : <Team user={user} onOpen={setViewUser} />)}
-        {isAdmin && page === 'users' && <Users me={user} onDevicesChanged={refreshPending} />}
+        {isAdmin && page === 'users' && <Users me={user} onChanged={refreshPending} />}
         {isAdmin && page === 'devices' && <Devices onChanged={refreshPending} />}
         {isAdmin && page === 'org' && <Organization />}
       </main>
@@ -90,6 +94,14 @@ export default function App() {
 }
 
 function Login({ onLogin }) {
+  const [mode, setMode] = useState('login');
+  const [canSignUp, setCanSignUp] = useState(false);
+  useEffect(() => { api('/auth/config').then(d => setCanSignUp(!!d.signup)).catch(() => {}); }, []);
+  if (mode === 'signup') return <SignUp onBack={() => setMode('login')} />;
+  return <LoginForm onLogin={onLogin} onSignUp={canSignUp ? () => setMode('signup') : null} />;
+}
+
+function LoginForm({ onLogin, onSignUp }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -115,7 +127,54 @@ function Login({ onLogin }) {
         <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" /></label>
         {error && <div className="error">{error}</div>}
         <button className="btn primary wide" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        <p className="muted small hint">New here or forgot your password? Ask your admin for a setup link.</p>
+        {onSignUp && <p className="hint">New here? <button type="button" className="link" onClick={onSignUp}>Create an account</button></p>}
+        <p className="muted small hint">Forgot your password? Ask your admin for a password link.</p>
+      </form>
+    </div>
+  );
+}
+
+// People create their own account with their own password. An admin approves it before the first sign-in.
+function SignUp({ onBack }) {
+  const [f, setF] = useState({ name: '', email: '', password: '', again: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+
+  const submit = async e => {
+    e.preventDefault();
+    if (f.password !== f.again) { setError('The two passwords are not the same.'); return; }
+    setBusy(true); setError('');
+    try {
+      await api('/auth/signup', { method: 'POST', body: { name: f.name, email: f.email, password: f.password } });
+      setDone(true);
+    } catch (err) { setError(err.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="center">
+      <form className="card login" onSubmit={submit}>
+        <div className="brand big"><span className="logo" aria-hidden="true" />Time Tracker</div>
+        {done ? (
+          <>
+            <div className="success">Your account was created.</div>
+            <p>An admin now needs to approve it. After that you can sign in here and in the desktop app with <b>{f.email}</b> and the password you just chose.</p>
+            <button type="button" className="btn primary wide" onClick={onBack}>Back to sign in</button>
+          </>
+        ) : (
+          <>
+            <p className="muted">Create your account. Only you know your password; it is stored encrypted and admins cannot see it.</p>
+            <label>Full name<input value={f.name} onChange={set('name')} required autoFocus autoComplete="name" /></label>
+            <label>Email<input type="email" value={f.email} onChange={set('email')} required autoComplete="username" /></label>
+            <label>Password<input type="password" value={f.password} onChange={set('password')} minLength={8} required autoComplete="new-password" /></label>
+            <label>Repeat password<input type="password" value={f.again} onChange={set('again')} minLength={8} required autoComplete="new-password" /></label>
+            {error && <div className="error">{error}</div>}
+            <button className="btn primary wide" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
+            <p className="hint">Already have an account? <button type="button" className="link" onClick={onBack}>Sign in</button></p>
+          </>
+        )}
       </form>
     </div>
   );

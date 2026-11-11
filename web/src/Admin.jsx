@@ -91,7 +91,8 @@ export function Team({ user, onOpen }) {
 
 // ---------- Users ----------
 
-export function Users({ me, onDevicesChanged }) {
+export function Users({ me, onChanged }) {
+  const onDevicesChanged = onChanged;
   const [users, setUsers] = useState(null);
   const [roles, setRoles] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -100,7 +101,11 @@ export function Users({ me, onDevicesChanged }) {
   const [link, setLink] = useState(null);           // { user, token, days, isNew }
   const [error, setError] = useState('');
 
-  const load = () => api('/admin/users').then(d => setUsers(d.users)).catch(e => setError(e.message));
+  const load = () => api('/admin/users').then(d => { setUsers(d.users); onChanged?.(); }).catch(e => setError(e.message));
+  const approve = async u => {
+    try { await api(`/admin/users/${u.id}`, { method: 'PATCH', body: { approved: true } }); load(); }
+    catch (e) { setError(e.message); }
+  };
   useEffect(() => {
     load();
     api('/admin/roles').then(d => setRoles(d.roles)).catch(() => {});
@@ -112,7 +117,9 @@ export function Users({ me, onDevicesChanged }) {
     catch (e) { setError(e.message); }
   };
   const remove = async u => {
-    if (!confirm(`Delete ${u.name}? This permanently removes the account, its devices and all tracked time.`)) return;
+    if (!confirm(u.approved
+      ? `Delete ${u.name}? This permanently removes the account, its devices and all tracked time.`
+      : `Reject the sign-up from ${u.name} (${u.email})? The account is removed.`)) return;
     try { await api(`/admin/users/${u.id}`, { method: 'DELETE' }); load(); onDevicesChanged?.(); }
     catch (e) { setError(e.message); }
   };
@@ -146,17 +153,19 @@ export function Users({ me, onDevicesChanged }) {
                   </button>
                 </td>
                 <td data-label="Status">
-                  {!u.active ? <span className="pill revoked">disabled</span>
+                  {!u.approved ? <span className="pill pending" title="This person signed up and is waiting for you to approve the account">waiting for approval</span>
+                    : !u.active ? <span className="pill revoked">disabled</span>
                     : u.has_password ? <span className="pill approved">active</span>
                       : <span className="pill pending" title="This person has not chosen a password yet">invited</span>}
                 </td>
                 <td data-label="Last seen">{fmtDateTime(u.last_seen_at)}</td>
                 <td className="actions">
+                  {!u.approved && <button className="btn small primary" onClick={() => approve(u)}>Approve</button>}
                   <button className="btn small" onClick={() => setEditing(u)}>Edit</button>
-                  <button className="btn small" onClick={() => setDevicesFor(u)}>Devices</button>
-                  {u.active && <button className="btn small" onClick={() => newLink(u)}>Password link</button>}
-                  {u.id !== me.id && <button className="btn small" onClick={() => toggle(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
-                  {u.id !== me.id && <button className="btn small danger" onClick={() => remove(u)}>Delete</button>}
+                  {u.approved && <button className="btn small" onClick={() => setDevicesFor(u)}>Devices</button>}
+                  {u.approved && u.active && <button className="btn small" onClick={() => newLink(u)}>Password link</button>}
+                  {u.approved && u.id !== me.id && <button className="btn small" onClick={() => toggle(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
+                  {u.id !== me.id && <button className="btn small danger" onClick={() => remove(u)}>{u.approved ? 'Delete' : 'Reject'}</button>}
                 </td>
               </tr>
             ))}

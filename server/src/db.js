@@ -142,4 +142,9 @@ async function migrate() {
     await q(`UPDATE users u JOIN roles r ON r.is_system = 1 AND r.access = u.role SET u.role_id = r.id`);
   }
   await q(`UPDATE users SET role_id = (SELECT id FROM roles WHERE access = 'user' AND is_system = 1 LIMIT 1) WHERE role_id IS NULL`);
+
+  // approved = 0: the person signed up themselves and an admin has not accepted the account yet
+  if (!(await hasColumn('users', 'approved'))) {
+    await q('ALTER TABLE users ADD COLUMN approved TINYINT(1) NOT NULL DEFAULT 1');
+  }
 }

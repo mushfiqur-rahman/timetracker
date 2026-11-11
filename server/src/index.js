@@ -70,7 +70,7 @@ const publicUser = u => ({
   id: u.id, email: u.email, name: u.name, role: u.access || 'user', active: !!u.active,
   roleId: u.role_id, roleName: u.role_name || 'User',
   departmentId: u.department_id, departmentName: u.department_name || null,
-  hasPassword: !!u.password_hash,
+  hasPassword: !!u.password_hash, approved: !!u.approved,
 });
 
 function publicDevice(d) {
@@ -93,7 +93,7 @@ async function newSetupToken(userId) {
   return token;
 }
 const userBySetupToken = async token => (await q(
-  `${USER_SELECT} WHERE u.setup_token_hash = ? AND u.setup_expires > NOW() AND u.active = 1`, [hashToken(token)]))[0];
+  `${USER_SELECT} WHERE u.setup_token_hash = ? AND u.setup_expires > NOW() AND u.active = 1 AND u.approved = 1`, [hashToken(token)]))[0];
 const deviceById = async id => (await q('SELECT * FROM devices WHERE id = ?', [id]))[0];
 
 // Small in-memory limiter for login attempts: 10 failures per 15 min per ip+email.
@@ -120,6 +120,7 @@ async function verifyCredentials(req) {
     noteLoginFail(key);
     throw new HttpError(401, 'Wrong email or password');
   }
+  if (!user.approved) throw new HttpError(403, 'Your account is waiting for admin approval. You can sign in once an admin has accepted it.', 'ACCOUNT_PENDING');
   if (!user.active) throw new HttpError(403, 'This account is disabled. Contact your admin.', 'USER_DISABLED');
   fails.delete(key);
   return user;
@@ -135,7 +136,7 @@ function auth(kind) {
     try { p = jwt.verify(token, JWT_SECRET); } catch { throw new HttpError(401, 'Session expired, please sign in again'); }
     if (p.kind !== kind) throw new HttpError(401, 'Invalid token');
     const user = await userById(p.uid);
-    if (!user || !user.active) throw new HttpError(401, 'Account not available');
+    if (!user || !user.active || !user.approved) throw new HttpError(401, 'Account not available');
     req.user = user;
     if (kind === 'desktop') {
       const device = (await q('SELECT * FROM devices WHERE id = ? AND user_id = ?', [p.did, user.id]))[0];
@@ -163,6 +164,38 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const user = await verifyCredentials(req);
   const token = jwt.sign({ uid: user.id, kind: 'web' }, JWT_SECRET, { expiresIn: '7d' });
   res.json({ token, user: publicUser(user) });
+}));
+
+// ---------- self sign-up ----------
+// People create their own account with their own password. Only a one-way bcrypt hash of the password is stored,
+// so nobody (admins included) can read it. A new account cannot sign in until an admin approves it.
+
+const ALLOW_SIGNUP = !['0', 'false', 'no', 'off'].includes(String(process.env.ALLOW_SIGNUP || 'true').toLowerCase());
+const signups = new Map();   // ip -> { first, count }: at most 5 sign-ups per hour from one address
+
+app.get('/api/auth/config', (req, res) => res.json({ signup: ALLOW_SIGNUP }));
+
+app.post('/api/auth/signup', wrap(async (req, res) => {
+  if (!ALLOW_SIGNUP) throw new HttpError(403, 'Sign-up is switched off. Ask your admin for an account.');
+  const now = Date.now(), seen = signups.get(req.ip);
+  if (seen && now - seen.first < 3600e3 && seen.count >= 5) throw new HttpError(429, 'Too many sign-ups from this network. Try again later.');
+  const b = req.body || {};
+  const email = String(b.email || '').trim().toLowerCase().slice(0, 190);
+  const name = String(b.name || '').trim().slice(0, 190);
+  const password = String(b.password || '');
+  if (!name) throw new HttpError(400, 'Enter your name');
+  if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
+  if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
+  const role = (await q(`SELECT id FROM roles WHERE access = 'user' ORDER BY is_system DESC, id LIMIT 1`))[0];
+  try {
+    await q('INSERT INTO users (email, name, password_hash, role_id, approved) VALUES (?,?,?,?,0)',
+      [email, name, await bcrypt.hash(password, 10), role.id]);
+  } catch (e) {
+    if (isDuplicate(e)) throw new HttpError(409, 'An account with this email already exists. Sign in instead.');
+    throw e;
+  }
+  if (!seen || now - seen.first >= 3600e3) signups.set(req.ip, { first: now, count: 1 }); else seen.count++;
+  res.status(201).json({ ok: true });
 }));
 
 // Who a setup link belongs to (shown on the "choose your password" page).
@@ -228,7 +261,7 @@ admin.use(adminOnly);
 
 admin.get('/users', wrap(async (req, res) => {
   const rows = await q(`
-    SELECT u.id, u.email, u.name, u.active, u.created_at, u.role_id, u.department_id,
+    SELECT u.id, u.email, u.name, u.active, u.approved, u.created_at, u.role_id, u.department_id,
            r.access AS role, r.name AS role_name, dp.name AS department_name,
            (u.password_hash IS NOT NULL) AS has_password,
            COALESCE(SUM(d.status = 'approved'), 0) AS approved_devices,
@@ -238,9 +271,9 @@ admin.get('/users', wrap(async (req, res) => {
       LEFT JOIN roles r ON r.id = u.role_id
       LEFT JOIN departments dp ON dp.id = u.department_id
       LEFT JOIN devices d ON d.user_id = u.id
-     GROUP BY u.id ORDER BY u.name`);
+     GROUP BY u.id ORDER BY u.approved, u.name`);
   res.json({
-    users: rows.map(u => ({ ...u, active: !!u.active, has_password: !!u.has_password, approved_devices: Number(u.approved_devices), pending_devices: Number(u.pending_devices) })),
+    users: rows.map(u => ({ ...u, active: !!u.active, approved: !!u.approved, has_password: !!u.has_password, approved_devices: Number(u.approved_devices), pending_devices: Number(u.pending_devices) })),
   });
 }));
 
@@ -308,6 +341,7 @@ admin.patch('/users/:id', wrap(async (req, res) => {
   const rd = await readRoleAndDepartment(b);
   if (rd.department_id !== undefined) set('department_id', rd.department_id);
   const roleChanges = rd.role_id !== undefined && rd.role_id !== (await userById(id))?.role_id;
+  if (b.approved !== undefined) set('approved', b.approved ? 1 : 0);   // accept a self sign-up
   if (roleChanges || b.active !== undefined) {
     if (id === req.user.id) throw new HttpError(400, 'You cannot change your own role or disable yourself');
     if (roleChanges) set('role_id', rd.role_id);
@@ -478,7 +512,7 @@ admin.delete('/devices/:id', wrap(async (req, res) => {
 
 web.get('/team/summary', teamOnly, wrap(async (req, res) => {
   const [from, to] = parseRange(req);
-  const where = [], params = [from, to];
+  const where = ['u.approved = 1'], params = [from, to];
   if (req.user.access === 'manager') {
     where.push('u.department_id = ?'); params.push(req.user.department_id || 0);
   } else if (req.query.departmentId) {

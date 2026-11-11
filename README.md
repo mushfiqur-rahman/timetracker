@@ -34,7 +34,8 @@ A small Upwork-style time tracker for a team.
 | Idle time | A tracked minute with no clicks and no key presses is idle. After 5 minutes without activity the app shows one notification. The timer keeps running and that time is recorded as idle. |
 | Timeline | The website shows each day in 10-minute blocks with worked and idle minutes, plus a week overview. Times use the 12-hour clock. |
 | Devices | The desktop app identifies the computer by its MAC address and hardware ID. A new computer is refused until an admin approves it. |
-| Passwords | Admins never set passwords. Each user gets a one-time link and chooses their own. |
+| Accounts | People create their own account with their own email and password, and an admin approves it. An admin can also add someone and send them a one-time link to choose a password. |
+| Passwords | Only the user knows their password. The database stores a one-way bcrypt hash, not the password, so admins and anyone with database access cannot read it. |
 | Offline | Minutes tracked without internet are saved on the computer and uploaded later. |
 
 ## 2. What is in this repository
@@ -128,8 +129,10 @@ If the VPS already runs a reverse proxy, remove the `caddy` service from `docker
 1. **Sign in** on the website with `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 2. **Create departments** (optional): **Roles & departments → Add department**, for example Design, Support.
 3. **Create roles** (optional): on the same page, add roles with your own names, for example "Team Lead", and pick an access level for each. See [Roles and access](#7-roles-and-access).
-4. **Add users**: **Users → Add user**. Enter name and email, choose a role and a department. You do not enter a password.
-5. **Send the setup link**: after saving, the site shows a one-time link. Copy it and send it to that person (email, chat). They open it and choose their own password. The link works once and expires after 7 days.
+4. **Let people join.** There are two ways; use either or both:
+   - **They sign up themselves.** On the sign-in page they click **Create an account** and enter their name, email and a password of their choice. The account appears under **Users** as *waiting for approval* (the Users tab shows a count). Click **Approve**, then use **Edit** to set their role and department. Click **Reject** to remove a sign-up you do not recognise. Until approved, the account cannot sign in on the website or in the desktop app.
+   - **You add them.** **Users → Add user**, enter name and email, choose a role and department. You do not enter a password: the site shows a one-time link to send to that person, and they choose their own password. The link works once and expires after 7 days.
+5. **Give them the website address.** The same address is the server address in the desktop app.
 6. **Approve devices**: when a user first signs in from the desktop app, their computer appears under **Devices → Waiting for approval**. Click **Approve**.
 
 Other things an admin can do:
@@ -212,6 +215,7 @@ Environment variables read by the server:
 | `JWT_SECRET` | yes | Random string, at least 16 characters (32 or more recommended). It signs logins. Keep it private. Changing it signs everyone out. |
 | `ADMIN_EMAIL` | first start | Email of the first admin, created only if no admin exists |
 | `ADMIN_PASSWORD` | first start | Password of that first admin |
+| `ALLOW_SIGNUP` | no | `true` (default) lets people create their own account on the sign-in page, pending admin approval. `false` hides that; only admins can add users. |
 | `PORT` | no | Port to listen on. Hosting sets this; default `3000` |
 
 **Creating a `JWT_SECRET`.** You make it up yourself. In Windows PowerShell:
@@ -252,6 +256,7 @@ docker compose up -d --build
 | --- | --- |
 | Website says "Time Tracker is not configured yet" | The page names the variable to fix. Correct it in the hosting panel and restart the app. |
 | Website shows a plain 503 | The app is not starting at all. Check that the entry file is `server.js` and read the app's log in the hosting panel. |
+| "Your account is waiting for admin approval" | The person signed up themselves. An admin approves the account under **Users**. |
 | "You have not chosen a password yet" | The user has not opened their setup link. Send a new one from **Users → Password link**. |
 | "This link is no longer valid" | Setup links work once and expire after 7 days. Create a new one. |
 | Desktop app: "waiting for admin approval" | Approve the computer under **Devices**, then sign in again. |

@@ -286,3 +286,4 @@ td[data-label="Role"] { white-space: nowrap; }
   .wval { white-space: nowrap; font-size: 9.5px; letter-spacing: -0.3px; }
   td[data-label="Role"] { white-space: normal; }
 }
+.hint .link { font-size: inherit; }
