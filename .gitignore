@@ -4,4 +4,4 @@ web/dist/
 desktop/TimeTracker/bin/
 desktop/TimeTracker/obj/
 desktop-mac/.build/
-desktop-mac/dist/
+desktop-mac/dist/TimeTracker.app/
