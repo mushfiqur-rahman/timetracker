@@ -1,0 +1,26 @@
+[32m==>[0m [1mDownloading bottle manifests[0m
+✔︎ Bottle Manifest postgresql@16 (16.15_1)
+[32m==>[0m [1mFetching downloads for: [32mpostgresql@16[39m[0m
+✔︎ Bottle postgresql@16 (16.15_1)
+waiting for server to start.... done
+server started
+== 1. first sign-in from an unknown Mac must be refused
+desktop-mac/ci-e2e.sh: line 37:  4642 Terminated: 15          "$BIN" > "$OUT/app1.log" 2>&1
+ id |        mac        |              machine_id              |                           hostname                            |      os      | status  
+----+-------------------+--------------------------------------+---------------------------------------------------------------+--------------+---------
+  1 | 5A:A4:AF:AD:B2:CC | 8DBF21A6-4AC6-52E4-A8D5-686425A02B3D | sjc22-be104-e820c252-97a3-4913-aac2-39d4f4cbafe9-5AA4AFADB2CC | macOS 26.7.2 | pending
+(1 row)
+
+== 2. admin approves, app signs in and tracks
+           t            | device_id | seconds | mouse | keys 
+------------------------+-----------+---------+-------+------
+ 2026-11-11 07:52:00+00 |         1 |       3 |     0 |    0
+ 2026-11-11 07:53:00+00 |         1 |      60 |     0 |    0
+ 2026-11-11 07:54:00+00 |         1 |      60 |     0 |    0
+(3 rows)
+
+== 3. admin blocks the device, the next request from the app is refused
+desktop-mac/ci-e2e.sh: line 58:  4909 Terminated: 15          "$BIN" --start > "$OUT/app2.log" 2>&1
+queue-sam_example_com.json
+settings.json
+E2E PASS

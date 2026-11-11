@@ -1,0 +1,185 @@
+0%: Compute target dependency graph
+Building targets in dependency order
+Target dependency graph (2 targets)
+0%: Gather provisioning inputs
+0%: Create build description
+0%: Discovering version info for swiftc
+0%: Discovering version info for clang
+0%: Discovering version info for ld
+Build description signature: f58c7aee7a21465c14d4437a71dd6639
+
+Build description path: /Users/runner/work/timetracker/timetracker/desktop-mac/.build/apple/Intermediates.noindex/XCBuildData/f58c7aee7a21465c14d4437a71dd6639.xcbuilddata
+
+0%: Create build directory $(TARGET_BUILD_DIR)
+0%: Create build directory $(OBJROOT)
+0%: Build stat cache for /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk
+0%: Create build directory $(TARGET_BUILD_DIR)/Release
+0%: Create build directory $(OBJROOT)/SwiftExplicitPrecompiledModules
+0%: Create build directory $(OBJROOT)/ExplicitPrecompiledModules
+0%: Create build directory $(TARGET_BUILD_DIR)/Release/PackageFrameworks
+0%: Create build directory $(OBJROOT)/EagerLinkingTBDs/Release
+0%: Write TimeTracker.DependencyStaticMetadataFileList
+0%: Write TimeTracker.DependencyMetadataFileList
+0%: Write TimeTracker_const_extract_protocols.json (x86_64)
+0%: Write TimeTracker.SwiftFileList (x86_64)
+0%: Write TimeTracker.LinkFileList (x86_64)
+0%: Write TimeTracker-OutputFileMap.json (x86_64)
+0%: Write TimeTracker_const_extract_protocols.json (arm64)
+0%: Write TimeTracker.SwiftFileList (arm64)
+0%: Write TimeTracker.LinkFileList (arm64)
+0%: Write TimeTracker-OutputFileMap.json (arm64)
+51%: Planning Swift module TimeTracker (x86_64)
+51%: Planning Swift module TimeTracker (arm64)
+53%: Compile TimeTracker (x86_64)
+53%: Compiling Clang module _SwiftConcurrencyShims
+53%: Compiling Clang module _Builtin_stdbool
+53%: Compiling Clang module _Builtin_float
+17%: Compiling Clang module SwiftShims
+17%: Compiling Clang module DeveloperToolsSupport
+17%: Compiling Clang module _Builtin_stddef
+17%: Compiling Clang module _Builtin_stddef
+16%: Compiling Clang module _AvailabilityInternal
+16%: Compiling Clang module ptrauth
+16%: Compiling Clang module _Builtin_float
+16%: Compiling Clang module _Builtin_stdarg
+16%: Compiling Clang module _AvailabilityInternal
+16%: Compiling Clang module _Builtin_stdarg
+20%: Compiling Clang module _Builtin_stdbool
+20%: Compiling Clang module DeveloperToolsSupport
+20%: Compiling Clang module _SwiftConcurrencyShims
+20%: Compiling Clang module SwiftShims
+20%: Compiling Clang module ptrauth
+20%: Compiling Clang module ptrcheck
+23%: Compiling Clang module ptrcheck
+23%: Compile TimeTracker (arm64)
+23%: Compiling Clang module _DarwinFoundation1
+23%: Compiling Clang module _DarwinFoundation1
+26%: Compiling Clang module _DarwinFoundation2
+26%: Compiling Clang module _Builtin_limits
+26%: Compiling Clang module _Builtin_limits
+26%: Compiling Clang module _DarwinFoundation2
+28%: Compiling Clang module sys_types
+28%: Compiling Clang module _Builtin_stdint
+28%: Compiling Clang module _Builtin_tgmath
+28%: Compiling Clang module _Builtin_stdint
+28%: Compiling Clang module _Builtin_tgmath
+28%: Compiling Clang module _DarwinFoundation3
+32%: Compiling Clang module OpenGL
+32%: Compiling Clang module libDER
+32%: Compiling Clang module OpenGL
+32%: Compiling Clang module _Builtin_intrinsics
+34%: Compiling Clang module _Builtin_intrinsics
+34%: Compiling Clang module _Builtin_inttypes
+35%: Compiling Clang module _Builtin_stdatomic
+35%: Compiling Clang module Darwin
+37%: Compiling Clang module _DarwinFoundation3
+37%: Compiling Clang module simd
+38%: Compiling Clang module _Builtin_inttypes
+38%: Compiling Clang module simd
+38%: Compiling Clang module Darwin
+40%: Compiling Clang module launch
+40%: Compiling Clang module MachO
+40%: Compiling Clang module Spatial
+41%: Compiling Clang module Spatial
+41%: Compiling Clang module ObjectiveC
+43%: Compiling Clang module MachO
+43%: Compiling Clang module CUPS
+44%: Compiling Clang module os_object
+44%: Compiling Clang module libkern
+44%: Compiling Clang module ObjectiveC
+44%: Compiling Clang module os_workgroup
+46%: Compiling Clang module CUPS
+46%: Compiling Clang module libkern
+46%: Compiling Clang module Dispatch
+48%: Compiling Clang module os_object
+48%: Compiling Clang module libDER
+48%: Compiling Clang module sys_types
+48%: Compiling Clang module CoreFoundation
+51%: Compiling Clang module XPC
+51%: Compiling Clang module os_workgroup
+51%: Compiling Clang module launch
+51%: Compiling Clang module Dispatch
+53%: Compiling Clang module _Builtin_stdatomic
+53%: Compiling Clang module ColorSync
+53%: Compiling Clang module Security
+53%: Compiling Clang module XPC
+55%: Compiling Clang module os
+55%: Compiling Clang module CoreFoundation
+55%: Compiling Clang module CFNetwork
+55%: Compiling Clang module IOKit
+58%: Compiling Clang module os
+58%: Compiling Clang module Security
+58%: Compiling Clang module ColorSync
+60%: Compiling Clang module CFNetwork
+60%: Compiling Clang module IOKit
+61%: Compiling Clang module DiskArbitration
+61%: Compiling Clang module CoreGraphics
+62%: Compiling Clang module CoreServices
+62%: Compiling Clang module CoreText
+62%: Compiling Clang module ImageIO
+64%: Compiling Clang module DiskArbitration
+64%: Compiling Clang module CoreGraphics
+65%: Compiling Clang module CoreServices
+65%: Compiling Clang module Foundation
+67%: Compiling Clang module ImageIO
+67%: Compiling Clang module CoreText
+68%: Compiling Clang module Foundation
+68%: Compiling Clang module ApplicationServices
+68%: Compiling Clang module UserNotifications
+68%: Compiling Clang module UniformTypeIdentifiers
+70%: Compiling Clang module OSLog
+70%: Compiling Clang module IOSurface
+70%: Compiling Clang module Symbols
+72%: Compiling Clang module Accessibility
+72%: Compiling Clang module Metal
+73%: Compiling Clang module CoreData
+73%: Compiling Clang module DataDetection
+73%: Compiling Clang module UniformTypeIdentifiers
+73%: Compiling Clang module DataDetection
+75%: Compiling Clang module OSLog
+75%: Compiling Clang module UserNotifications
+75%: Compiling Clang module CoreData
+75%: Compiling Clang module ApplicationServices
+78%: Compiling Clang module CoreTransferable
+78%: Compiling Clang module IOSurface
+79%: Compiling Clang module Symbols
+79%: Compiling Clang module CoreVideo
+79%: Compiling Clang module Metal
+79%: Compiling Clang module Accessibility
+81%: Compiling Clang module CoreTransferable
+81%: Compiling Clang module CoreImage
+81%: Compiling Clang module QuartzCore
+83%: Compiling Clang module CoreVideo
+84%: Compiling Clang module SwiftUICore
+84%: Compiling Clang module AppKit
+84%: Compiling Clang module QuartzCore
+84%: Compiling Clang module CoreImage
+87%: Compiling Clang module SwiftUICore
+87%: Compiling Clang module AppKit
+88%: Compiling Clang module SwiftUI
+88%: Compiling AppModel.swift, Services.swift, Tracker.swift, Views.swift, main.swift
+88%: Compile 5 Swift source files (x86_64)
+89%: Compiling Clang module SwiftUI
+89%: Compiling AppModel.swift, Services.swift, Tracker.swift, Views.swift, main.swift
+89%: Compile 5 Swift source files (arm64)
+90%: Discovering Swift tasks after 'Compiling AppModel.swift, Services.swift, Tracker.swift, Views.swift, main.swift'
+90%: Unblock downstream dependents of TimeTracker (x86_64)
+90%: Link TimeTracker (x86_64)
+90%: Copy TimeTracker.swiftmodule (x86_64)
+90%: Copy TimeTracker.swiftdoc (x86_64)
+90%: Copy TimeTracker.abi.json (x86_64)
+90%: Copy TimeTracker.swiftsourceinfo (x86_64)
+94%: Discovering Swift tasks after 'Compiling AppModel.swift, Services.swift, Tracker.swift, Views.swift, main.swift'
+94%: Unblock downstream dependents of TimeTracker (arm64)
+94%: Copy TimeTracker.swiftmodule (arm64)
+94%: Link TimeTracker (arm64)
+94%: Copy TimeTracker.swiftdoc (arm64)
+94%: Copy TimeTracker.abi.json (arm64)
+94%: Copy TimeTracker.swiftsourceinfo (arm64)
+98%: Create universal binary TimeTracker
+98%: Generate TimeTracker.dSYM for TimeTracker
+99%: Register execution policy exception for TimeTracker
+100%: Build succeeded
+Build complete!
+dist/TimeTracker.app: replacing existing signature
+Built dist/TimeTracker.app

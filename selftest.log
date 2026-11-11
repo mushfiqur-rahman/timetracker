@@ -1,0 +1,15 @@
+ok   no notification while active
+ok   minutes queued after 2 min
+ok   no notification before 5 min idle
+ok   exactly one notification in an idle period
+ok   idle state
+ok   no notification when active again
+ok   not idle after activity
+ok   one notification in the second idle period
+ok   session seconds
+ok   all seconds queued after stop
+ok   sleep gap is not counted
+ok   queue empty after upload
+input counters readable: mouse +0, keys +0
+{"hostname":"sjc22-be104-e820c252-97a3-4913-aac2-39d4f4cbafe9-5AA4AFADB2CC","macs":["5A:A4:AF:AD:B2:CC","2E:8F:A7:7C:E8:0C"],"os":"macOS 26.7.2","machineId":"8DBF21A6-4AC6-52E4-A8D5-686425A02B3D"}
+SELFTEST PASS
