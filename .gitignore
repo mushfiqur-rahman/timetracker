@@ -1,0 +1,5 @@
+node_modules/
+web/dist/
+.env
+desktop/TimeTracker/bin/
+desktop/TimeTracker/obj/
