@@ -224,7 +224,7 @@ namespace TimeTracker
             var macs = DeviceInfo.GetMacs();
             if (macs.Count == 0)
             {
-                _lblLoginError.Text = "No network card was found on this computer, so it cannot be identified. Connect Wi-Fi or a network cable and try again.";
+                _lblLoginError.Text = "This computer has no network adapter with a hardware address, so it cannot be identified. Turn on Wi-Fi or plug in a network cable, then try again.";
                 return;
             }
 

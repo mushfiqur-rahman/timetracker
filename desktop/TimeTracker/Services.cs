@@ -19,7 +19,11 @@ namespace TimeTracker
         private static readonly string[] VirtualHints =
             { "virtual", "vmware", "hyper-v", "vpn", "tap-", "wintun", "wireguard", "bluetooth", "loopback", "tunnel", "pseudo", "npcap", "docker" };
 
-        /// <summary>MAC addresses of the real network cards, the most stable one first (wired, then Wi-Fi).</summary>
+        /// <summary>
+        /// MAC addresses of this computer's network adapters, the most stable one first:
+        /// built-in wired, then Wi-Fi, then other real adapters (USB modem, phone tethering),
+        /// and only if nothing else exists, virtual ones (virtual machines, cloud PCs, VPN adapters).
+        /// </summary>
         public static List<string> GetMacs()
         {
             var found = new List<Tuple<int, string>>();
@@ -27,15 +31,17 @@ namespace TimeTracker
             {
                 foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
                 {
-                    bool wired = ni.NetworkInterfaceType == NetworkInterfaceType.Ethernet || ni.NetworkInterfaceType == NetworkInterfaceType.GigabitEthernet;
-                    bool wifi = ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211;
-                    if (!wired && !wifi) continue;
-                    string desc = (ni.Description + " " + ni.Name).ToLowerInvariant();
-                    if (VirtualHints.Any(desc.Contains)) continue;
+                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
                     byte[] b = ni.GetPhysicalAddress().GetAddressBytes();
                     if (b.Length != 6 || b.All(x => x == 0)) continue;
+
+                    bool wired = ni.NetworkInterfaceType == NetworkInterfaceType.Ethernet || ni.NetworkInterfaceType == NetworkInterfaceType.GigabitEthernet;
+                    bool wifi = ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211;
+                    string desc = (ni.Description + " " + ni.Name).ToLowerInvariant();
+                    bool looksVirtual = VirtualHints.Any(desc.Contains);
                     bool locallyAdministered = (b[0] & 2) != 0; // randomised or software-assigned address: least trustworthy
-                    int rank = (locallyAdministered ? 10 : 0) + (wired ? 0 : 1);
+
+                    int rank = (looksVirtual ? 100 : 0) + (locallyAdministered ? 10 : 0) + (wired ? 0 : wifi ? 1 : 2);
                     found.Add(Tuple.Create(rank, string.Join(":", b.Select(x => x.ToString("X2")))));
                 }
             }
