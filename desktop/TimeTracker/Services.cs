@@ -46,11 +46,27 @@ namespace TimeTracker
                 }
             }
             catch { }
-            return found.OrderBy(x => x.Item1).ThenBy(x => x.Item2).Select(x => x.Item2).Distinct().ToList();
+            var macs = found.OrderBy(x => x.Item1).ThenBy(x => x.Item2).Select(x => x.Item2).Distinct().ToList();
+
+            // Last resort: Windows would not list any adapter (blocked by security software, a driver problem, ...).
+            // Use a stable stand-in address made from the Windows installation id, so the person can still sign in
+            // and the admin can still approve this one computer.
+            if (macs.Count == 0)
+            {
+                string id = ReadMachineGuid();
+                if (!string.IsNullOrEmpty(id))
+                {
+                    using (var sha = SHA1.Create())
+                    {
+                        byte[] h = sha.ComputeHash(Encoding.UTF8.GetBytes(id));
+                        macs.Add("02:" + string.Join(":", h.Take(5).Select(x => x.ToString("X2"))));
+                    }
+                }
+            }
+            return macs;
         }
 
-        /// <summary>The Windows installation id. Unlike a MAC address it cannot be changed from network settings.</summary>
-        public static string GetMachineId(List<string> macs)
+        private static string ReadMachineGuid()
         {
             try
             {
@@ -58,11 +74,16 @@ namespace TimeTracker
                 using (var key = hklm.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography"))
                 {
                     var v = key == null ? null : key.GetValue("MachineGuid") as string;
-                    if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
+                    return string.IsNullOrWhiteSpace(v) ? null : v.Trim();
                 }
             }
-            catch { }
-            return macs.Count > 0 ? "mac-" + macs[0] : "";
+            catch { return null; }
+        }
+
+        /// <summary>The Windows installation id. Unlike a MAC address it cannot be changed from network settings.</summary>
+        public static string GetMachineId(List<string> macs)
+        {
+            return ReadMachineGuid() ?? (macs.Count > 0 ? "mac-" + macs[0] : "");
         }
 
         public static string OsName()
