@@ -131,12 +131,23 @@ final class Tracker {
 
     /// State of the last ten minutes, oldest first: 0 = not tracked, 1 = active, 2 = idle.
     func recentMinutes(_ now: Date) -> [Int] {
+        // Same rule as the website: a minute is idle only inside a pause of 3 or more minutes without activity.
         let minute = Tracker.epochMinute(now)
-        return (0..<10).map { i -> Int in
-            let t = minute - 9 + i
+        let count = 12   // two extra minutes of context before the ten that are shown
+        let raw = (0..<count).map { i -> Int in   // 0 = not tracked, 1 = had activity, 2 = no activity
+            let t = minute - (count - 1) + i
             if let cur = current, cur.t == t, cur.s > 0 { return cur.m + cur.k > 0 ? 1 : 2 }
             if let active = history[t] { return active ? 1 : 2 }
             return 0
+        }
+        return (2..<count).map { i -> Int in
+            if raw[i] != 2 { return raw[i] }
+            var run = 1
+            var j = i - 1
+            while j >= 0 && raw[j] == 2 { run += 1; j -= 1 }
+            j = i + 1
+            while j < count && raw[j] == 2 { run += 1; j += 1 }
+            return run >= 3 ? 2 : 1
         }
     }
 

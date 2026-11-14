@@ -353,7 +353,10 @@ function DeviceTable({ devices, showUser, onChanged, onError }) {
                   {macChanged && <div className="sub warn" title={`Now reporting: ${d.last_macs.join(', ')}`}>⚠ MAC changed since approval</div>}
                 </div>
               </td>
-              <td data-label="Status"><span className={`pill ${d.status}`}>{d.status}</span></td>
+              <td data-label="Status">
+                <span className={`pill ${d.status}`}>{d.status}</span>
+                {d.signed_in && <span className="pill neutral" title="The desktop app is signed in on this computer. Signing in on another computer signs this one out.">signed in</span>}
+              </td>
               <td data-label="Last used">{fmtDateTime(d.last_seen_at)}</td>
               <td className="actions">
                 {d.status !== 'approved' && <button className="btn small primary" onClick={() => act(d, { status: 'approved' })}>Approve</button>}

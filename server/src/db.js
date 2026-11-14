@@ -70,7 +70,7 @@ const SCHEMA = [
    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
   // One row per tracked minute. t = minutes since 1970 (UTC), seconds = how much of that minute the timer ran.
-  // A minute with mouse + key_presses = 0 is idle time.
+  // idle = 1 when the minute is part of a pause of 3 minutes or longer (see markIdle).
   `CREATE TABLE IF NOT EXISTS activity_minutes (
      user_id     INT NOT NULL,
      t           INT NOT NULL,
@@ -147,4 +147,37 @@ async function migrate() {
   if (!(await hasColumn('users', 'approved'))) {
     await q('ALTER TABLE users ADD COLUMN approved TINYINT(1) NOT NULL DEFAULT 1');
   }
+
+  // Only one computer per person may be signed in to the desktop app at a time:
+  // desktop_sid is the id of the latest desktop sign-in, desktop_device_id the computer it was made on.
+  if (!(await hasColumn('users', 'desktop_sid'))) {
+    await q('ALTER TABLE users ADD COLUMN desktop_sid VARCHAR(40) NULL, ADD COLUMN desktop_device_id INT NULL');
+  }
+
+  if (!(await hasColumn('activity_minutes', 'idle'))) {
+    await q('ALTER TABLE activity_minutes ADD COLUMN idle TINYINT(1) NOT NULL DEFAULT 0');
+    await markIdle();   // apply the 3-minute rule to everything tracked so far
+  }
+}
+
+export const IDLE_AFTER_MINUTES = 3;
+
+/**
+ * Sets the idle flag. A tracked minute is idle when it has no mouse or keyboard activity AND it belongs to a run of
+ * at least 3 such minutes in a row. Shorter pauses (reading, thinking, a short call) stay active.
+ * Without arguments it recalculates every row; otherwise only one person's minutes between fromT and toT.
+ */
+export async function markIdle(userId, fromT, toT) {
+  const quiet = x => `${x}.mouse + ${x}.key_presses = 0`;
+  const neighbour = (alias, offset) =>
+    `LEFT JOIN activity_minutes ${alias} ON ${alias}.user_id = a.user_id AND ${alias}.t = a.t ${offset} AND ${quiet(alias)}`;
+  const sql = `
+    UPDATE activity_minutes a
+      ${neighbour('p2', '- 2')} ${neighbour('p1', '- 1')} ${neighbour('n1', '+ 1')} ${neighbour('n2', '+ 2')}
+       SET a.idle = IF(${quiet('a')} AND (
+             (p2.t IS NOT NULL AND p1.t IS NOT NULL) OR
+             (p1.t IS NOT NULL AND n1.t IS NOT NULL) OR
+             (n1.t IS NOT NULL AND n2.t IS NOT NULL)), 1, 0)
+     ${userId === undefined ? '' : 'WHERE a.user_id = ? AND a.t BETWEEN ? AND ?'}`;
+  await q(sql, userId === undefined ? [] : [userId, fromT, toT]);
 }

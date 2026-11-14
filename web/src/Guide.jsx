@@ -53,7 +53,7 @@ export function HomeGuide({ canSignUp }) {
         <li>The first time on a computer, an admin has to approve that computer. Then sign in again.</li>
         <li>Switch the timer on when you start working and off when you stop.</li>
       </ol>
-      <p className="muted small">The app counts mouse and keyboard activity, never what you type. After 5 minutes without activity the time is marked idle.</p>
+      <p className="muted small">The app counts mouse and keyboard activity, never what you type. A pause of 3 minutes or longer is marked idle. You can be signed in on one computer at a time.</p>
     </div>
   );
 }
@@ -115,7 +115,7 @@ export default function Guide({ user, go }) {
               You never see or set anyone's password.
             </Step>
             <Step n="4" title="Approve their computers" action={jump('devices', 'Devices')}>
-              When someone signs in to the desktop app on a computer for the first time, that computer appears under Devices as "waiting for approval". Check the name and MAC address, then click <b>Approve</b>. Until then the app will not track on it. This is how you stop people from using several computers without your knowledge.
+              When someone signs in to the desktop app on a computer for the first time, that computer appears under Devices as "waiting for approval". Check the name and MAC address, then click <b>Approve</b>. Until then the app will not track on it. Even with several approved computers, a person can be signed in on only <b>one at a time</b>: signing in on another computer signs the first one out. The Devices page marks that computer "signed in". Two screens on one computer are fine.
             </Step>
             <Step n="5" title="Follow the work" action={jump('team', 'Team')}>
               The Team page shows worked, active and idle time per person for today, this week or this month. Click a person to see their day in 10-minute blocks.
@@ -145,7 +145,7 @@ export default function Guide({ user, go }) {
             <ul className="plain">
               <li><b>Worked</b> is all the time the timer was on.</li>
               <li><b>Active</b> is worked time with mouse or keyboard activity (clicks, scrolling, movement, typing).</li>
-              <li><b>Idle</b> is worked time in minutes with no activity at all. After 5 idle minutes the person gets one reminder; the timer keeps running.</li>
+              <li><b>Idle</b> is worked time inside a pause of 3 minutes or longer with no activity at all. Shorter pauses still count as active. After 5 idle minutes the person gets one reminder; the timer keeps running.</li>
               <li>In the timeline, each small bar is one minute: <span className="dotword"><i className="dot active" />green active</span>, <span className="dotword"><i className="dot idle" />amber idle</span>, <span className="dotword"><i className="dot none" />grey not tracked</span>.</li>
               <li>The app records how much activity there was, never which keys were pressed, and takes no screenshots.</li>
             </ul>
@@ -207,7 +207,8 @@ export default function Guide({ user, go }) {
             <ol className="steps">
               <li>Switch the big toggle <b>on</b> when you start working and <b>off</b> when you stop or take a break.</li>
               <li>The app shows the current session, today's total and this week's total.</li>
-              <li>If you do not touch the mouse or keyboard for 5 minutes, you get one reminder and that time is marked idle. Switch the timer off if you are away.</li>
+              <li>Short pauses are fine. If you do not touch the mouse or keyboard for 3 minutes or longer, that whole pause is marked idle, and after 5 minutes you get one reminder. Switch the timer off if you are away.</li>
+              <li>You can be signed in on one computer at a time. Signing in on another computer signs you out on the first one.</li>
               <li>No internet? Keep working. The app saves your time and uploads it when you are back online.</li>
             </ol>
             <p className="muted small">The app counts clicks, scrolling, mouse movement and key presses. It never records what you type and takes no screenshots.</p>

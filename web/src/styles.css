@@ -324,3 +324,4 @@ h3.gap { margin-top: 18px; }
 @media (max-width: 860px) {
   .landing { grid-template-columns: minmax(0, 460px); align-content: start; padding: 20px 12px; }
 }
+td[data-label="Status"] .pill + .pill { margin-left: 6px; }

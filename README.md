@@ -31,9 +31,9 @@ A small Upwork-style time tracker for a team.
 | Topic | Behaviour |
 | --- | --- |
 | Tracking | While the timer is on, the app counts mouse clicks, scroll steps, mouse movement and key presses per minute, on all monitors. Movement counts as one mouse action for each second the pointer moves. Only the counts are stored, never which keys were pressed. |
-| Idle time | A tracked minute with no mouse activity and no key presses is idle. After 5 minutes without activity the app shows one notification. The timer keeps running and that time is recorded as idle. |
+| Idle time | A pause of 3 minutes or longer with no mouse activity and no key presses is idle, in full. Shorter pauses still count as active. After 5 minutes without activity the app shows one notification. The timer keeps running and that time is recorded as idle. |
 | Timeline | The website shows each day in 10-minute blocks with worked and idle minutes, plus a week overview. Times use the 12-hour clock. |
-| Devices | The desktop app identifies the computer by its MAC address and hardware ID. A new computer is refused until an admin approves it. |
+| Devices | The desktop app identifies the computer by its MAC address and hardware ID. A new computer is refused until an admin approves it. A person can be signed in on only one computer at a time: signing in on another one signs the first out. Several screens on one computer are fine. |
 | Accounts | People create their own account with their own email and password, and an admin approves it. An admin can also add someone and send them a one-time link to choose a password. |
 | Passwords | Only the user knows their password. The database stores a one-way bcrypt hash, not the password, so admins and anyone with database access cannot read it. |
 | Offline | Minutes tracked without internet are saved on the computer and uploaded later. |
@@ -263,7 +263,7 @@ docker compose up -d --build
 | "This link is no longer valid" | Setup links work once and expire after 7 days. Create a new one. |
 | Desktop app: "waiting for admin approval" | Approve the computer under **Devices**, then sign in again. |
 | Desktop app: "Cannot reach the server" | Check the server address (it must start with `https://`) and the internet connection. |
-| Desktop app signs out by itself | The device was blocked, the user was disabled, or 30 days passed since sign-in. |
+| Desktop app signs out by itself | The same account signed in on another computer (only one at a time), the device was blocked, the user was disabled, or 30 days passed since sign-in. |
 | Clicks and keys stay at 0 on Windows | An antivirus tool may be blocking the app. Add an exception for `TimeTracker.exe`. |
 | Devices page shows "MAC changed" | The computer now reports a different network address (common on Macs with private Wi-Fi addresses). Approval still holds because it is tied to the hardware ID. |
 

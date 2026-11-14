@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { q, initDb } from './db.js';
+import { q, initDb, markIdle } from './db.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || '';
@@ -76,7 +76,7 @@ const publicUser = u => ({
 function publicDevice(d) {
   let macs = [];
   try { macs = JSON.parse(d.last_macs || '[]'); } catch { /* ignore */ }
-  return { ...d, last_macs: Array.isArray(macs) ? macs : [] };
+  return { ...d, last_macs: Array.isArray(macs) ? macs : [], signed_in: !!d.signed_in };
 }
 
 const USER_SELECT = `SELECT u.*, r.access, r.name AS role_name, d.name AS department_name
@@ -142,6 +142,15 @@ function auth(kind) {
       const device = (await q('SELECT * FROM devices WHERE id = ? AND user_id = ?', [p.did, user.id]))[0];
       if (!device || device.status !== 'approved')
         throw new HttpError(403, 'This device is no longer approved', 'DEVICE_NOT_APPROVED');
+      // one computer at a time: a newer sign-in on another computer replaces this one
+      // (sign-ins made before this rule existed carry no session id: the first computer to contact the server keeps going)
+      const session = p.sid || `legacy:${p.did}`;
+      if (!user.desktop_sid) {
+        await q('UPDATE users SET desktop_sid = ?, desktop_device_id = ? WHERE id = ? AND desktop_sid IS NULL', [session, device.id, user.id]);
+        user.desktop_sid = (await userById(user.id)).desktop_sid;
+      }
+      if (session !== user.desktop_sid)
+        throw new HttpError(403, 'You were signed out here because your account signed in on another computer. Only one computer can be signed in at a time.', 'SESSION_REPLACED');
       req.device = device;
     }
     next();
@@ -253,7 +262,7 @@ web.post('/me/password', wrap(async (req, res) => {
 }));
 
 // Minute rows for a range. Users get their own; admins may pass userId.
-// Row format is compact: [epochMinute, seconds, mouse, keys]
+// Row format is compact: [epochMinute, seconds, mouse, keys, idle (1 = part of a pause of 3+ minutes)]
 web.get('/activity', wrap(async (req, res) => {
   const [from, to] = parseRange(req, 32);
   let uid = req.user.id;
@@ -262,10 +271,10 @@ web.get('/activity', wrap(async (req, res) => {
     if (!(await canViewUser(req.user, uid))) throw new HttpError(403, 'You may not view this person');
   }
   const rows = await q(
-    'SELECT t, seconds, mouse, key_presses FROM activity_minutes WHERE user_id = ? AND t >= ? AND t < ? ORDER BY t',
+    'SELECT t, seconds, mouse, key_presses, idle FROM activity_minutes WHERE user_id = ? AND t >= ? AND t < ? ORDER BY t',
     [uid, from, to]
   );
-  res.json({ minutes: rows.map(r => [r.t, r.seconds, r.mouse, r.key_presses]) });
+  res.json({ minutes: rows.map(r => [r.t, r.seconds, r.mouse, r.key_presses, r.idle ? 1 : 0]) });
 }));
 
 web.get('/devices', wrap(async (req, res) => {
@@ -487,7 +496,8 @@ admin.delete('/roles/:id', wrap(async (req, res) => {
 admin.get('/devices', wrap(async (req, res) => {
   const rows = await q(`
     SELECT d.id, d.user_id, u.name AS user_name, u.email AS user_email, d.mac, d.machine_id, d.last_macs,
-           d.hostname, d.os, d.label, d.status, d.created_at, d.decided_at, d.last_seen_at
+           d.hostname, d.os, d.label, d.status, d.created_at, d.decided_at, d.last_seen_at,
+           (u.desktop_device_id = d.id AND d.status = 'approved') AS signed_in
       FROM devices d JOIN users u ON u.id = d.user_id
      ORDER BY (d.status = 'pending') DESC, d.created_at DESC, d.id DESC`);
   res.json({ devices: rows.map(publicDevice) });
@@ -543,7 +553,7 @@ web.get('/team/summary', teamOnly, wrap(async (req, res) => {
   const rows = await q(`
     SELECT u.id, u.name, u.email, u.active, r.name AS role_name, d.name AS department_name,
            COALESCE(SUM(a.seconds), 0) AS total,
-           COALESCE(SUM(CASE WHEN a.mouse + a.key_presses = 0 THEN a.seconds ELSE 0 END), 0) AS idle,
+           COALESCE(SUM(CASE WHEN a.idle = 1 THEN a.seconds ELSE 0 END), 0) AS idle,
            MAX(a.t) AS last_t
       FROM users u
       LEFT JOIN roles r ON r.id = u.role_id
@@ -615,7 +625,10 @@ function desktopRouter() {
     if (device.status === 'revoked')
       throw new HttpError(403, 'This device has been blocked by your admin.', 'DEVICE_REVOKED');
 
-    const token = jwt.sign({ uid: user.id, did: device.id, kind: 'desktop' }, JWT_SECRET, { expiresIn: '30d' });
+    // This sign-in becomes the only valid desktop session; a computer signed in earlier is signed out at its next request.
+    const sid = crypto.randomBytes(12).toString('hex');
+    await q('UPDATE users SET desktop_sid = ?, desktop_device_id = ? WHERE id = ?', [sid, device.id, user.id]);
+    const token = jwt.sign({ uid: user.id, did: device.id, sid, kind: 'desktop' }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: publicUser(user), device: { id: device.id, mac: device.mac } });
   }));
 
@@ -650,6 +663,10 @@ function desktopRouter() {
         [rows.slice(i, i + 500)]
       );
     }
+    if (rows.length) {
+      const ts = rows.map(r => r[1]);
+      await markIdle(req.user.id, Math.min(...ts) - 2, Math.max(...ts) + 2);   // neighbours may change state too
+    }
     await q('UPDATE devices SET last_seen_at = NOW() WHERE id = ?', [req.device.id]);
     res.json({ ok: true, saved: rows.length });
   }));
@@ -661,7 +678,7 @@ function desktopRouter() {
     const dayMin = Math.ceil(day.getTime() / 60e3), weekMin = Math.ceil(week.getTime() / 60e3);
     const row = (await q(
       `SELECT COALESCE(SUM(CASE WHEN t >= ? THEN seconds ELSE 0 END), 0) AS today,
-              COALESCE(SUM(CASE WHEN t >= ? AND mouse + key_presses = 0 THEN seconds ELSE 0 END), 0) AS today_idle,
+              COALESCE(SUM(CASE WHEN t >= ? AND idle = 1 THEN seconds ELSE 0 END), 0) AS today_idle,
               COALESCE(SUM(seconds), 0) AS week
          FROM activity_minutes WHERE user_id = ? AND t >= ?`,
       [dayMin, dayMin, req.user.id, Math.min(dayMin, weekMin)]

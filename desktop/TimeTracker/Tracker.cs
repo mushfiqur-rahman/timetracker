@@ -134,17 +134,30 @@ namespace TimeTracker
                 Queue.RemoveAll(x => x.T == s.T && x.S == s.S && x.M == s.M && x.K == s.K);
         }
 
-        /// <summary>State of the last ten minutes, oldest first: 0 = not tracked, 1 = active, 2 = idle.</summary>
+        /// <summary>
+        /// State of the last ten minutes, oldest first: 0 = not tracked, 1 = active, 2 = idle.
+        /// Same rule as the website: a minute is idle only inside a pause of 3 or more minutes without activity.
+        /// </summary>
         public int[] RecentMinutes(DateTime nowUtc)
         {
             long minute = EpochMinute(nowUtc);
-            var states = new int[10];
-            for (int i = 0; i < 10; i++)
+            const int n = 12;                 // two extra minutes of context before the ten that are shown
+            var raw = new int[n];             // 0 = not tracked, 1 = had activity, 2 = no activity
+            for (int i = 0; i < n; i++)
             {
-                long t = minute - 9 + i;
+                long t = minute - (n - 1) + i;
                 bool active;
-                if (Current != null && Current.T == t && Current.S > 0) states[i] = Current.M + Current.K > 0 ? 1 : 2;
-                else if (_history.TryGetValue(t, out active)) states[i] = active ? 1 : 2;
+                if (Current != null && Current.T == t && Current.S > 0) raw[i] = Current.M + Current.K > 0 ? 1 : 2;
+                else if (_history.TryGetValue(t, out active)) raw[i] = active ? 1 : 2;
+            }
+            var states = new int[10];
+            for (int i = 2; i < n; i++)
+            {
+                if (raw[i] != 2) { states[i - 2] = raw[i]; continue; }
+                int run = 1;
+                for (int j = i - 1; j >= 0 && raw[j] == 2; j--) run++;
+                for (int j = i + 1; j < n && raw[j] == 2; j++) run++;
+                states[i - 2] = run >= 3 ? 2 : 1;
             }
             return states;
         }

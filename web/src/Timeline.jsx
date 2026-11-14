@@ -33,12 +33,12 @@ export default function Timeline({ title, subtitle, userId, onBack }) {
   // Per-day totals for the week chart.
   const week = useMemo(() => {
     const days = Array.from({ length: 7 }, (_, i) => ({ date: addDays(weekStart, i), total: 0, idle: 0 }));
-    for (const [m, s, mouse, keys] of rows || []) {
+    for (const [m, s, , , idle] of rows || []) {
       const d = new Date(m * 60000);
       const i = Math.round((startOfDay(d) - weekStart) / 86400000);
       if (!days[i]) continue;
       days[i].total += s;
-      if (mouse + keys === 0) days[i].idle += s;
+      if (idle) days[i].idle += s;
     }
     return days;
   }, [rows, weekKey]);
@@ -46,13 +46,13 @@ export default function Timeline({ title, subtitle, userId, onBack }) {
   // Selected day -> hours -> six 10-minute blocks -> ten minutes each.
   const hours = useMemo(() => {
     const map = new Map();
-    for (const [m, s, mouse, keys] of rows || []) {
+    for (const [m, s, mouse, keys, idle] of rows || []) {
       const d = new Date(m * 60000);
       if (!sameDay(d, day)) continue;
       const h = d.getHours();
       if (!map.has(h)) map.set(h, Array.from({ length: 6 }, () => ({ total: 0, idle: 0, mouse: 0, keys: 0, mins: Array(10).fill(null) })));
       const b = map.get(h)[Math.floor(d.getMinutes() / 10)];
-      const isIdle = mouse + keys === 0;
+      const isIdle = !!idle;   // set by the server: part of a pause of 3 minutes or longer
       b.total += s; b.mouse += mouse; b.keys += keys;
       if (isIdle) b.idle += s;
       b.mins[d.getMinutes() % 10] = isIdle ? 'idle' : 'active';
@@ -114,7 +114,7 @@ export default function Timeline({ title, subtitle, userId, onBack }) {
       <div className="card pad">
         <div className="cardhead">
           <h2>Timeline <span className="muted small">10-minute blocks</span></h2>
-          <span className="muted small">Each small bar is one minute</span>
+          <span className="muted small">Each small bar is one minute. A pause counts as idle once it lasts 3 minutes.</span>
         </div>
         {rows === null && !error && <div className="empty">Loading…</div>}
         {rows !== null && hours.length === 0 && <div className="empty">No time tracked on this day.</div>}
